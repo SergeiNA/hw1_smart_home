@@ -76,7 +76,7 @@ mod tests {
             DeviceType::new_outlet("PC".to_string(), OutletState::On, 250 as Watt),
             DeviceType::new_thermometer("Electronic thermometer".to_string(), 22.5 as Celsius),
         ];
-        let mut room = SmartRoom::new("Living Room".to_string(), devices);
+        let room = SmartRoom::new("Living Room".to_string(), devices);
 
         assert_eq!(room.devices.len(), 3);
         assert_eq!(room.view(0).device_name(), "Lighter");
@@ -170,7 +170,7 @@ Smart Room: Living Room:
             DeviceType::new_outlet("Smart Outlet PC".to_string(), OutletState::On, 250 as Watt),
             DeviceType::new_thermometer("Smart Thermometer".to_string(), 22.5 as Celsius),
         ];
-        let mut room = SmartRoom::new("Living Room".to_string(), devices);
+        let room = SmartRoom::new("Living Room".to_string(), devices);
 
         assert_eq!(room.devices.len(), 3);
         assert_eq!(room.view(0).device_name(), "Smart Outlet lighter");
