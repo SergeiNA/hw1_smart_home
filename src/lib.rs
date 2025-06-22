@@ -1,5 +1,5 @@
 pub mod smart_devices;
-mod smart_home;
+pub mod smart_home;
 pub mod smart_room;
 
 pub fn add(left: u64, right: u64) -> u64 {
