@@ -1,9 +1,8 @@
-pub mod device;
 pub mod outlet;
 pub mod thermometer;
 pub mod types;
 
-pub use device::SmartDevice;
+use crate::info::Information;
 pub use outlet::{Outlet, OutletDevice, OutletState};
 use std::fmt;
 pub use thermometer::{TemperatureSensor, Thermometer};
@@ -18,34 +17,31 @@ pub enum DeviceType {
 impl fmt::Display for DeviceType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DeviceType::OutletType(outlet) => write!(
-                f,
-                "Outlet: {}\n{}",
-                outlet.device_name(),
-                outlet.device_info()
-            ),
+            DeviceType::OutletType(outlet) => {
+                write!(f, "Outlet: {}\n{}", outlet.name(), outlet.info())
+            }
             DeviceType::ThermometerType(thermometer) => write!(
                 f,
                 "Thermometer: {}\n{}",
-                thermometer.device_name(),
-                thermometer.device_info()
+                thermometer.name(),
+                thermometer.info()
             ),
         }
     }
 }
 
-impl SmartDevice for DeviceType {
-    fn device_name(&self) -> String {
+impl Information for DeviceType {
+    fn name(&self) -> String {
         match self {
-            DeviceType::OutletType(outlet) => outlet.device_name(),
-            DeviceType::ThermometerType(thermometer) => thermometer.device_name(),
+            DeviceType::OutletType(outlet) => outlet.name(),
+            DeviceType::ThermometerType(thermometer) => thermometer.name(),
         }
     }
 
-    fn device_info(&self) -> String {
+    fn info(&self) -> String {
         match self {
-            DeviceType::OutletType(outlet) => outlet.device_info(),
-            DeviceType::ThermometerType(thermometer) => thermometer.device_info(),
+            DeviceType::OutletType(outlet) => outlet.info(),
+            DeviceType::ThermometerType(thermometer) => thermometer.info(),
         }
     }
 }
@@ -67,9 +63,9 @@ mod tests {
     #[test]
     fn device_type_outlet_create_test() {
         let outlet = DeviceType::new_outlet("Living Room".to_string(), OutletState::On, 150);
-        assert_eq!(outlet.device_name(), "Living Room");
+        assert_eq!(outlet.name(), "Living Room");
         assert_eq!(
-            outlet.device_info(),
+            outlet.info(),
             "Smart Outlet: Living Room - Current State: On, Power Usage: 150 Watt"
         );
     }
@@ -77,9 +73,9 @@ mod tests {
     #[test]
     fn device_type_thermometer_create_test() {
         let thermometer = DeviceType::new_thermometer("Bedroom".to_string(), 22.5 as Celsius);
-        assert_eq!(thermometer.device_name(), "Bedroom");
+        assert_eq!(thermometer.name(), "Bedroom");
         assert_eq!(
-            thermometer.device_info(),
+            thermometer.info(),
             "Thermometer: Bedroom - Current Temperature: 22.50°C"
         );
     }
@@ -87,9 +83,9 @@ mod tests {
     #[test]
     fn device_type_thermometer_get_test() {
         let thermometer = DeviceType::new_thermometer("Bedroom".to_string(), 22.5 as Celsius);
-        assert_eq!(thermometer.device_name(), "Bedroom");
+        assert_eq!(thermometer.name(), "Bedroom");
         assert_eq!(
-            thermometer.device_info(),
+            thermometer.info(),
             "Thermometer: Bedroom - Current Temperature: 22.50°C"
         );
         {
@@ -105,9 +101,9 @@ mod tests {
     fn device_type_outlet_switch_test() {
         let mut outlet_device =
             DeviceType::new_outlet("Living Room".to_string(), OutletState::On, 150);
-        assert_eq!(outlet_device.device_name(), "Living Room");
+        assert_eq!(outlet_device.name(), "Living Room");
         assert_eq!(
-            outlet_device.device_info(),
+            outlet_device.info(),
             "Smart Outlet: Living Room - Current State: On, Power Usage: 150 Watt"
         );
         {
@@ -118,7 +114,7 @@ mod tests {
             outlet.switch();
         }
         assert_eq!(
-            outlet_device.device_info(),
+            outlet_device.info(),
             "Smart Outlet: Living Room - Current State: Off, Power Usage: 0 Watt"
         );
     }
@@ -127,9 +123,9 @@ mod tests {
     fn device_type_outlet_turn_on_off_test() {
         let mut outlet_device =
             DeviceType::new_outlet("Living Room".to_string(), OutletState::On, 150);
-        assert_eq!(outlet_device.device_name(), "Living Room");
+        assert_eq!(outlet_device.name(), "Living Room");
         assert_eq!(
-            outlet_device.device_info(),
+            outlet_device.info(),
             "Smart Outlet: Living Room - Current State: On, Power Usage: 150 Watt"
         );
         {
@@ -147,7 +143,7 @@ mod tests {
             assert_eq!(outlet.state(), OutletState::Off);
         }
         assert_eq!(
-            outlet_device.device_info(),
+            outlet_device.info(),
             "Smart Outlet: Living Room - Current State: Off, Power Usage: 0 Watt"
         );
         {
@@ -165,7 +161,7 @@ mod tests {
             assert_eq!(outlet.state(), OutletState::On);
         }
         assert_eq!(
-            outlet_device.device_info(),
+            outlet_device.info(),
             "Smart Outlet: Living Room - Current State: On, Power Usage: 150 Watt"
         );
     }

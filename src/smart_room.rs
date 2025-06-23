@@ -1,4 +1,5 @@
-use crate::smart_devices::{DeviceType, SmartDevice};
+use crate::info::Information;
+use crate::smart_devices::DeviceType;
 
 #[derive(Debug, Clone)]
 pub struct SmartRoom {
@@ -6,29 +7,17 @@ pub struct SmartRoom {
     devices: Vec<DeviceType>,
 }
 
-impl SmartRoom {
-    pub fn new(name: String, devices: Vec<DeviceType>) -> Self {
-        SmartRoom { name, devices }
-    }
-
-    pub fn room_name(&self) -> String {
+impl Information for SmartRoom {
+    fn name(&self) -> String {
         self.name.clone()
     }
 
-    pub fn view(&self, index: usize) -> &DeviceType {
-        &self.devices[index]
-    }
-
-    pub fn get(&mut self, index: usize) -> &mut DeviceType {
-        &mut self.devices[index]
-    }
-
-    pub fn room_info(&self) -> String {
+    fn info(&self) -> String {
         let enumerated_devices: Vec<String> = self
             .devices
             .iter()
             .enumerate()
-            .map(|(i, d)| format!("[{}]: {}", i, d.device_info()))
+            .map(|(i, d)| format!("[{}]: {}", i, d.info()))
             .collect();
         format!(
             "\nSmart Room: {}:\n Total devices: {}\n  {}",
@@ -36,6 +25,20 @@ impl SmartRoom {
             enumerated_devices.len(),
             enumerated_devices.join("\n  --------------------------------------\n  ")
         )
+    }
+}
+
+impl SmartRoom {
+    pub fn new(name: String, devices: Vec<DeviceType>) -> Self {
+        SmartRoom { name, devices }
+    }
+
+    pub fn view_device(&self, index: usize) -> &DeviceType {
+        &self.devices[index]
+    }
+
+    pub fn get_device(&mut self, index: usize) -> &mut DeviceType {
+        &mut self.devices[index]
     }
 }
 
@@ -47,7 +50,7 @@ mod tests {
     #[test]
     fn smart_room_create_empty_test() {
         let room = SmartRoom::new("Living Room".to_string(), vec![]);
-        assert_eq!(room.room_name(), "Living Room");
+        assert_eq!(room.name(), "Living Room");
         assert_eq!(room.devices.len(), 0);
     }
 
@@ -55,18 +58,18 @@ mod tests {
     #[should_panic(expected = "index out of bounds")]
     fn smart_room_view_index_out_of_bounds_test() {
         let room = SmartRoom::new("Living Room".to_string(), vec![]);
-        assert_eq!(room.room_name(), "Living Room");
+        assert_eq!(room.name(), "Living Room");
         assert_eq!(room.devices.len(), 0);
-        let _ = room.view(0); // This should panic
+        let _ = room.view_device(0); // This should panic
     }
 
     #[test]
     #[should_panic(expected = "index out of bounds")]
     fn smart_room_get_index_out_of_bounds_test() {
         let mut room = SmartRoom::new("Living Room".to_string(), vec![]);
-        assert_eq!(room.room_name(), "Living Room");
+        assert_eq!(room.name(), "Living Room");
         assert_eq!(room.devices.len(), 0);
-        let _ = room.get(0); // This should panic
+        let _ = room.get_device(0); // This should panic
     }
 
     #[test]
@@ -79,39 +82,39 @@ mod tests {
         let room = SmartRoom::new("Living Room".to_string(), devices);
 
         assert_eq!(room.devices.len(), 3);
-        assert_eq!(room.view(0).device_name(), "Lighter");
+        assert_eq!(room.view_device(0).name(), "Lighter");
         assert_eq!(
-            room.view(0).device_info(),
+            room.view_device(0).info(),
             "Smart Outlet: Lighter - Current State: On, Power Usage: 100 Watt"
         );
-        assert_eq!(room.view(1).device_name(), "PC");
+        assert_eq!(room.view_device(1).name(), "PC");
         assert_eq!(
-            room.view(1).device_info(),
+            room.view_device(1).info(),
             "Smart Outlet: PC - Current State: On, Power Usage: 250 Watt"
         );
-        assert_eq!(room.view(2).device_name(), "Electronic thermometer");
+        assert_eq!(room.view_device(2).name(), "Electronic thermometer");
         assert_eq!(
-            room.view(2).device_info(),
+            room.view_device(2).info(),
             "Thermometer: Electronic thermometer - Current Temperature: 22.50°C"
         );
 
-        let outlet_lighter: &DeviceType = room.view(0);
-        let outlet_pc: &DeviceType = room.view(1);
-        let thermometer: &DeviceType = room.view(2);
+        let outlet_lighter: &DeviceType = room.view_device(0);
+        let outlet_pc: &DeviceType = room.view_device(1);
+        let thermometer: &DeviceType = room.view_device(2);
 
-        assert_eq!(outlet_lighter.device_name(), "Lighter");
+        assert_eq!(outlet_lighter.name(), "Lighter");
         assert_eq!(
-            outlet_lighter.device_info(),
+            outlet_lighter.info(),
             "Smart Outlet: Lighter - Current State: On, Power Usage: 100 Watt"
         );
-        assert_eq!(outlet_pc.device_name(), "PC");
+        assert_eq!(outlet_pc.name(), "PC");
         assert_eq!(
-            outlet_pc.device_info(),
+            outlet_pc.info(),
             "Smart Outlet: PC - Current State: On, Power Usage: 250 Watt"
         );
-        assert_eq!(thermometer.device_name(), "Electronic thermometer");
+        assert_eq!(thermometer.name(), "Electronic thermometer");
         assert_eq!(
-            thermometer.device_info(),
+            thermometer.info(),
             "Thermometer: Electronic thermometer - Current Temperature: 22.50°C"
         );
     }
@@ -123,7 +126,7 @@ mod tests {
             DeviceType::new_outlet("Smart Outlet".to_string(), OutletState::On, 150 as Watt);
         room.devices.push(outlet);
         assert_eq!(room.devices.len(), 1);
-        assert_eq!(room.view(0).device_name(), "Smart Outlet");
+        assert_eq!(room.view_device(0).name(), "Smart Outlet");
     }
 
     #[test]
@@ -144,9 +147,9 @@ mod tests {
             22.5 as Celsius,
         ));
         assert_eq!(room.devices.len(), 3);
-        assert_eq!(room.view(0).device_name(), "Smart Outlet lighter");
-        assert_eq!(room.view(1).device_name(), "Smart Outlet PC");
-        assert_eq!(room.view(2).device_name(), "Smart Thermometer");
+        assert_eq!(room.view_device(0).name(), "Smart Outlet lighter");
+        assert_eq!(room.view_device(1).name(), "Smart Outlet PC");
+        assert_eq!(room.view_device(2).name(), "Smart Thermometer");
 
         let expected = r#"
 Smart Room: Living Room:
@@ -156,7 +159,7 @@ Smart Room: Living Room:
   [1]: Smart Outlet: Smart Outlet PC - Current State: On, Power Usage: 250 Watt
   --------------------------------------
   [2]: Thermometer: Smart Thermometer - Current Temperature: 22.50°C"#;
-        assert_eq!(room.room_info(), expected);
+        assert_eq!(room.info(), expected);
     }
 
     #[test]
@@ -173,9 +176,9 @@ Smart Room: Living Room:
         let room = SmartRoom::new("Living Room".to_string(), devices);
 
         assert_eq!(room.devices.len(), 3);
-        assert_eq!(room.view(0).device_name(), "Smart Outlet lighter");
-        assert_eq!(room.view(1).device_name(), "Smart Outlet PC");
-        assert_eq!(room.view(2).device_name(), "Smart Thermometer");
+        assert_eq!(room.view_device(0).name(), "Smart Outlet lighter");
+        assert_eq!(room.view_device(1).name(), "Smart Outlet PC");
+        assert_eq!(room.view_device(2).name(), "Smart Thermometer");
 
         let expected = r#"
 Smart Room: Living Room:
@@ -185,7 +188,30 @@ Smart Room: Living Room:
   [1]: Smart Outlet: Smart Outlet PC - Current State: On, Power Usage: 250 Watt
   --------------------------------------
   [2]: Thermometer: Smart Thermometer - Current Temperature: 22.50°C"#;
-        assert_eq!(room.room_info(), expected);
+        assert_eq!(room.info(), expected);
+    }
+
+    #[test]
+    fn smart_room_ref_device_test() {
+        let devices = vec![
+            DeviceType::new_outlet(
+                "Smart Outlet lighter".to_string(),
+                OutletState::On,
+                100 as Watt,
+            ),
+            DeviceType::new_outlet("Smart Outlet PC".to_string(), OutletState::On, 250 as Watt),
+        ];
+        let room = SmartRoom::new("Living Room".to_string(), devices);
+
+        let device_0 = room.view_device(0);
+        let outlet_o = match device_0 {
+            DeviceType::OutletType(o) => o,
+            _ => panic!("Expected OutletType"),
+        };
+
+        assert_eq!(outlet_o.name(), "Smart Outlet PC");
+        assert_eq!(outlet_o.state(), OutletState::On);
+        assert_eq!(outlet_o.power_usage(), 100 as Watt);
     }
 
     #[test]
@@ -202,16 +228,16 @@ Smart Room: Living Room:
 
         assert_eq!(room.devices.len(), 2);
         assert_eq!(
-            room.view(0).device_info(),
+            room.view_device(0).info(),
             "Smart Outlet: Smart Outlet lighter - Current State: On, Power Usage: 100 Watt"
         );
         assert_eq!(
-            room.view(1).device_info(),
+            room.view_device(1).info(),
             "Smart Outlet: Smart Outlet PC - Current State: On, Power Usage: 250 Watt"
         );
 
         {
-            let outlet_device: &mut DeviceType = room.get(0);
+            let outlet_device: &mut DeviceType = room.get_device(0);
             let outlet = match outlet_device {
                 DeviceType::OutletType(o) => o,
                 _ => panic!("Expected OutletType"),
@@ -221,16 +247,16 @@ Smart Room: Living Room:
             assert_eq!(outlet.state(), OutletState::Off);
         }
         assert_eq!(
-            room.get(0).device_info(),
+            room.get_device(0).info(),
             "Smart Outlet: Smart Outlet lighter - Current State: Off, Power Usage: 0 Watt"
         );
         assert_eq!(
-            room.view(1).device_info(),
+            room.view_device(1).info(),
             "Smart Outlet: Smart Outlet PC - Current State: On, Power Usage: 250 Watt"
         );
 
         {
-            let outlet_device: &mut DeviceType = room.get(1);
+            let outlet_device: &mut DeviceType = room.get_device(1);
             let outlet = match outlet_device {
                 DeviceType::OutletType(o) => o,
                 _ => panic!("Expected OutletType"),
@@ -240,11 +266,11 @@ Smart Room: Living Room:
             assert_eq!(outlet.state(), OutletState::Off);
         }
         assert_eq!(
-            room.view(0).device_info(),
+            room.view_device(0).info(),
             "Smart Outlet: Smart Outlet lighter - Current State: Off, Power Usage: 0 Watt"
         );
         assert_eq!(
-            room.view(1).device_info(),
+            room.view_device(1).info(),
             "Smart Outlet: Smart Outlet PC - Current State: Off, Power Usage: 0 Watt"
         );
     }

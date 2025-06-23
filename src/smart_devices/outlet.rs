@@ -1,5 +1,5 @@
-use super::device::SmartDevice;
 use super::types::Watt;
+use crate::info::Information;
 
 use std::fmt;
 
@@ -19,7 +19,7 @@ impl fmt::Display for OutletState {
     }
 }
 
-pub trait OutletDevice: SmartDevice {
+pub trait OutletDevice: Information {
     fn new(name: String, initial_state: OutletState, power_usage: Watt) -> Self;
     fn turn_on(&mut self);
     fn turn_off(&mut self);
@@ -35,11 +35,11 @@ pub struct Outlet {
     power_usage: Watt,
 }
 
-impl SmartDevice for Outlet {
-    fn device_name(&self) -> String {
+impl Information for Outlet {
+    fn name(&self) -> String {
         self.name.clone()
     }
-    fn device_info(&self) -> String {
+    fn info(&self) -> String {
         let usage = OutletDevice::power_usage(self);
         format!(
             "Smart Outlet: {} - Current State: {}, Power Usage: {} Watt",
@@ -93,9 +93,9 @@ mod tests {
         let outlet = Outlet::new("Living Room Outlet".to_string(), OutletState::Off, 100);
         assert_eq!(outlet.power_usage(), 0);
         assert_eq!(outlet.state(), OutletState::Off);
-        assert_eq!(outlet.device_name(), "Living Room Outlet");
+        assert_eq!(outlet.name(), "Living Room Outlet");
         assert_eq!(
-            outlet.device_info(),
+            outlet.info(),
             "Smart Outlet: Living Room Outlet - Current State: Off, Power Usage: 0 Watt"
         );
     }
@@ -104,12 +104,12 @@ mod tests {
         let mut outlet = Outlet::new("Living Room Outlet".to_string(), OutletState::Off, 100);
         assert_eq!(outlet.power_usage(), 0);
         assert_eq!(outlet.state(), OutletState::Off);
-        assert_eq!(outlet.device_name(), "Living Room Outlet");
+        assert_eq!(outlet.name(), "Living Room Outlet");
         outlet.switch();
         assert_eq!(outlet.power_usage(), 100);
         assert_eq!(outlet.state(), OutletState::On);
         assert_eq!(
-            outlet.device_info(),
+            outlet.info(),
             "Smart Outlet: Living Room Outlet - Current State: On, Power Usage: 100 Watt"
         );
     }
@@ -118,7 +118,7 @@ mod tests {
         let mut outlet = Outlet::new("Living Room Outlet".to_string(), OutletState::Off, 100);
         assert_eq!(outlet.power_usage(), 0);
         assert_eq!(outlet.state(), OutletState::Off);
-        assert_eq!(outlet.device_name(), "Living Room Outlet");
+        assert_eq!(outlet.name(), "Living Room Outlet");
         outlet.turn_off();
         assert_eq!(outlet.power_usage(), 0);
         assert_eq!(outlet.state(), OutletState::Off);
@@ -129,7 +129,7 @@ mod tests {
         assert_eq!(outlet.power_usage(), 0);
         assert_eq!(outlet.state(), OutletState::Off);
         assert_eq!(
-            outlet.device_info(),
+            outlet.info(),
             "Smart Outlet: Living Room Outlet - Current State: Off, Power Usage: 0 Watt"
         );
     }
