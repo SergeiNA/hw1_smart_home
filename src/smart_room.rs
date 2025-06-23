@@ -204,14 +204,14 @@ Smart Room: Living Room:
         let room = SmartRoom::new("Living Room".to_string(), devices);
 
         let device_0 = room.view_device(0);
-        let outlet_o = match device_0 {
+        let outlet_0 = match device_0 {
             DeviceType::OutletType(o) => o,
             _ => panic!("Expected OutletType"),
         };
 
-        assert_eq!(outlet_o.name(), "Smart Outlet PC");
-        assert_eq!(outlet_o.state(), OutletState::On);
-        assert_eq!(outlet_o.power_usage(), 100 as Watt);
+        assert_eq!(outlet_0.name(), "Smart Outlet lighter");
+        assert_eq!(outlet_0.state(), OutletState::On);
+        assert_eq!(outlet_0.power_usage(), 100 as Watt);
     }
 
     #[test]
