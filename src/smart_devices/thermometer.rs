@@ -2,7 +2,6 @@ use super::types::Celsius;
 use crate::info::Information;
 
 pub trait TemperatureSensor: Information {
-    fn new(name: String, initial_temperature: Celsius) -> Self;
     fn current_temperature(&self) -> Celsius;
 }
 
@@ -10,6 +9,15 @@ pub trait TemperatureSensor: Information {
 pub struct Thermometer {
     name: String,
     temperature: Celsius,
+}
+
+impl Thermometer {
+    pub fn new(name: String, initial_temperature: Celsius) -> Self {
+        Thermometer {
+            name,
+            temperature: initial_temperature,
+        }
+    }
 }
 
 impl Information for Thermometer {
@@ -25,12 +33,6 @@ impl Information for Thermometer {
 }
 
 impl TemperatureSensor for Thermometer {
-    fn new(name: String, initial_temperature: Celsius) -> Self {
-        Thermometer {
-            name,
-            temperature: initial_temperature,
-        }
-    }
     fn current_temperature(&self) -> Celsius {
         self.temperature
     }

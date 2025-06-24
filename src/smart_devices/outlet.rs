@@ -20,7 +20,6 @@ impl fmt::Display for OutletState {
 }
 
 pub trait OutletDevice: Information {
-    fn new(name: String, initial_state: OutletState, power_usage: Watt) -> Self;
     fn turn_on(&mut self);
     fn turn_off(&mut self);
     fn switch(&mut self);
@@ -33,6 +32,16 @@ pub struct Outlet {
     name: String,
     state: OutletState,
     power_usage: Watt,
+}
+
+impl Outlet {
+    pub fn new(name: String, initial_state: OutletState, power_usage: Watt) -> Self {
+        Outlet {
+            name,
+            state: initial_state,
+            power_usage,
+        }
+    }
 }
 
 impl Information for Outlet {
@@ -49,14 +58,6 @@ impl Information for Outlet {
 }
 
 impl OutletDevice for Outlet {
-    fn new(name: String, initial_state: OutletState, power_usage: Watt) -> Self {
-        Outlet {
-            name,
-            state: initial_state,
-            power_usage,
-        }
-    }
-
     fn turn_on(&mut self) {
         self.state = OutletState::On;
     }
