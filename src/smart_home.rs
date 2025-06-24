@@ -1,5 +1,5 @@
-use crate::info::Information;
 use crate::smart_room::SmartRoom;
+use crate::traits::Information;
 
 pub struct SmartHome {
     name: String,
@@ -32,10 +32,29 @@ impl SmartHome {
         SmartHome { name, rooms }
     }
 
+    /// Returns an immutable reference to the room at the specified index.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the room in the internal `rooms` list.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the index is out of bounds.
     pub fn view_room(&self, index: usize) -> &SmartRoom {
         &self.rooms[index]
     }
 
+    /// Returns a mutable reference to the room at the specified index,
+    /// allowing the caller to modify the room.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the room in the internal `rooms` list.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the index is out of bounds.
     pub fn get_room(&mut self, index: usize) -> &mut SmartRoom {
         &mut self.rooms[index]
     }
@@ -43,10 +62,10 @@ impl SmartHome {
 
 #[cfg(test)]
 mod tests {
-    use crate::info::Information;
     use crate::smart_devices::{Celsius, DeviceType, OutletDevice, OutletState, Watt};
     use crate::smart_home::SmartHome;
     use crate::smart_room::SmartRoom;
+    use crate::traits::Information;
 
     #[test]
     fn view_home_rooms() {

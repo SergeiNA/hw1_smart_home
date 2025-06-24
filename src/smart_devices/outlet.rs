@@ -1,5 +1,5 @@
 use super::types::Watt;
-use crate::info::Information;
+use crate::traits::Information;
 
 use std::fmt;
 

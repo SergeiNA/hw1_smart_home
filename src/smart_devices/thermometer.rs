@@ -1,5 +1,5 @@
 use super::types::Celsius;
-use crate::info::Information;
+use crate::traits::Information;
 
 pub trait TemperatureSensor: Information {
     fn current_temperature(&self) -> Celsius;

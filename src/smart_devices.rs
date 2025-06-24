@@ -2,9 +2,8 @@ pub mod outlet;
 pub mod thermometer;
 pub mod types;
 
-use crate::info::Information;
+use crate::traits::Information;
 pub use outlet::{Outlet, OutletDevice, OutletState};
-use std::fmt;
 pub use thermometer::{TemperatureSensor, Thermometer};
 pub use types::{Celsius, Fahrenheit, Kelvin, Watt};
 
@@ -12,22 +11,6 @@ pub use types::{Celsius, Fahrenheit, Kelvin, Watt};
 pub enum DeviceType {
     OutletType(Outlet),
     ThermometerType(Thermometer),
-}
-
-impl fmt::Display for DeviceType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DeviceType::OutletType(outlet) => {
-                write!(f, "Outlet: {}\n{}", outlet.name(), outlet.info())
-            }
-            DeviceType::ThermometerType(thermometer) => write!(
-                f,
-                "Thermometer: {}\n{}",
-                thermometer.name(),
-                thermometer.info()
-            ),
-        }
-    }
 }
 
 impl Information for DeviceType {

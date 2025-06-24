@@ -1,5 +1,5 @@
-use crate::info::Information;
 use crate::smart_devices::DeviceType;
+use crate::traits::Information;
 
 #[derive(Debug, Clone)]
 pub struct SmartRoom {
@@ -33,10 +33,29 @@ impl SmartRoom {
         SmartRoom { name, devices }
     }
 
+    /// Returns an immutable reference to the device at the given index.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the device in the internal device list.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if `index` is out of bounds.
     pub fn view_device(&self, index: usize) -> &DeviceType {
         &self.devices[index]
     }
 
+    /// Returns a mutable reference to the device at the given index,
+    /// allowing the caller to modify the device.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the device in the internal device list.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if `index` is out of bounds.
     pub fn get_device(&mut self, index: usize) -> &mut DeviceType {
         &mut self.devices[index]
     }

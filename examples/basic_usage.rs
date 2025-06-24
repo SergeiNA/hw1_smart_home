@@ -1,7 +1,7 @@
-use smart_home::info::Information;
 use smart_home::smart_devices::{Celsius, DeviceType, OutletDevice, OutletState, Watt};
 use smart_home::smart_home::SmartHome;
 use smart_home::smart_room::SmartRoom;
+use smart_home::traits::Information;
 
 fn main() {
     let bedroom = SmartRoom::new(
