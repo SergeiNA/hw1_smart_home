@@ -54,6 +54,17 @@ fn main() {
         assert_eq!(outlet.state(), OutletState::On);
     }
 
+    {
+        let device = home.get_room(1).get_device(0);
+        let outlet = match device {
+            DeviceType::OutletType(outlet) => outlet,
+            _ => panic!("Expected OutletType"),
+        };
+        assert_eq!(outlet.state(), OutletState::On);
+        outlet.turn_off();
+        assert_eq!(outlet.state(), OutletState::Off);
+    }
+
     println!(
         "Home information after switch kitchen Teapot Outlet:\n{}",
         home.info()
