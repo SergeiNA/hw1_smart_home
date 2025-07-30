@@ -7,35 +7,50 @@ pub use outlet::{Outlet, OutletDevice, OutletState};
 pub use thermometer::{TemperatureSensor, Thermometer};
 pub use types::{Celsius, Fahrenheit, Kelvin, Watt};
 
-#[derive(Debug, Clone)]
-pub enum DeviceType {
+#[derive(Debug, Clone, PartialEq)]
+pub enum Device {
     OutletType(Outlet),
     ThermometerType(Thermometer),
+    Empty,
 }
 
-impl Information for DeviceType {
+impl From<Outlet> for Device {
+    fn from(outlet: Outlet) -> Self {
+        Device::OutletType(outlet)
+    }
+}
+
+impl From<Thermometer> for Device {
+    fn from(thermometer: Thermometer) -> Self {
+        Device::ThermometerType(thermometer)
+    }
+}
+
+impl Information for Device {
     fn name(&self) -> String {
         match self {
-            DeviceType::OutletType(outlet) => outlet.name(),
-            DeviceType::ThermometerType(thermometer) => thermometer.name(),
+            Device::OutletType(outlet) => outlet.name(),
+            Device::ThermometerType(thermometer) => thermometer.name(),
+            Device::Empty => "No Device".to_string(),
         }
     }
 
     fn info(&self) -> String {
         match self {
-            DeviceType::OutletType(outlet) => outlet.info(),
-            DeviceType::ThermometerType(thermometer) => thermometer.info(),
+            Device::OutletType(outlet) => outlet.info(),
+            Device::ThermometerType(thermometer) => thermometer.info(),
+            Device::Empty => "No device information available".to_string(),
         }
     }
 }
 
-impl DeviceType {
+impl Device {
     pub fn new_outlet(name: String, initial_state: OutletState, power_usage: Watt) -> Self {
-        DeviceType::OutletType(Outlet::new(name, initial_state, power_usage))
+        Device::OutletType(Outlet::new(name, initial_state, power_usage))
     }
 
     pub fn new_thermometer(name: String, initial_temperature: Celsius) -> Self {
-        DeviceType::ThermometerType(Thermometer::new(name, initial_temperature))
+        Device::ThermometerType(Thermometer::new(name, initial_temperature))
     }
 }
 
@@ -45,7 +60,7 @@ mod tests {
 
     #[test]
     fn device_type_outlet_create_test() {
-        let outlet = DeviceType::new_outlet("Living Room".to_string(), OutletState::On, 150);
+        let outlet = Device::new_outlet("Living Room".to_string(), OutletState::On, 150);
         assert_eq!(outlet.name(), "Living Room");
         assert_eq!(
             outlet.info(),
@@ -55,7 +70,7 @@ mod tests {
 
     #[test]
     fn device_type_thermometer_create_test() {
-        let thermometer = DeviceType::new_thermometer("Bedroom".to_string(), 22.5 as Celsius);
+        let thermometer = Device::new_thermometer("Bedroom".to_string(), 22.5 as Celsius);
         assert_eq!(thermometer.name(), "Bedroom");
         assert_eq!(
             thermometer.info(),
@@ -65,7 +80,7 @@ mod tests {
 
     #[test]
     fn device_type_thermometer_get_test() {
-        let thermometer = DeviceType::new_thermometer("Bedroom".to_string(), 22.5 as Celsius);
+        let thermometer = Device::new_thermometer("Bedroom".to_string(), 22.5 as Celsius);
         assert_eq!(thermometer.name(), "Bedroom");
         assert_eq!(
             thermometer.info(),
@@ -73,7 +88,7 @@ mod tests {
         );
         {
             let t: &Thermometer = match thermometer {
-                DeviceType::ThermometerType(ref t) => t,
+                Device::ThermometerType(ref t) => t,
                 _ => panic!("Expected ThermometerType"),
             };
             assert_eq!(t.current_temperature(), 22.5 as Celsius);
@@ -82,8 +97,7 @@ mod tests {
 
     #[test]
     fn device_type_outlet_switch_test() {
-        let mut outlet_device =
-            DeviceType::new_outlet("Living Room".to_string(), OutletState::On, 150);
+        let mut outlet_device = Device::new_outlet("Living Room".to_string(), OutletState::On, 150);
         assert_eq!(outlet_device.name(), "Living Room");
         assert_eq!(
             outlet_device.info(),
@@ -91,7 +105,7 @@ mod tests {
         );
         {
             let outlet: &mut Outlet = match outlet_device {
-                DeviceType::OutletType(ref mut o) => o,
+                Device::OutletType(ref mut o) => o,
                 _ => panic!("Expected OutletType"),
             };
             outlet.switch();
@@ -104,8 +118,7 @@ mod tests {
 
     #[test]
     fn device_type_outlet_turn_on_off_test() {
-        let mut outlet_device =
-            DeviceType::new_outlet("Living Room".to_string(), OutletState::On, 150);
+        let mut outlet_device = Device::new_outlet("Living Room".to_string(), OutletState::On, 150);
         assert_eq!(outlet_device.name(), "Living Room");
         assert_eq!(
             outlet_device.info(),
@@ -113,14 +126,14 @@ mod tests {
         );
         {
             let outlet: &mut Outlet = match outlet_device {
-                DeviceType::OutletType(ref mut o) => o,
+                Device::OutletType(ref mut o) => o,
                 _ => panic!("Expected OutletType"),
             };
             outlet.turn_off();
         }
         {
             let outlet: &Outlet = match outlet_device {
-                DeviceType::OutletType(ref o) => o,
+                Device::OutletType(ref o) => o,
                 _ => panic!("Expected OutletType"),
             };
             assert_eq!(outlet.state(), OutletState::Off);
@@ -131,14 +144,14 @@ mod tests {
         );
         {
             let outlet: &mut Outlet = match outlet_device {
-                DeviceType::OutletType(ref mut o) => o,
+                Device::OutletType(ref mut o) => o,
                 _ => panic!("Expected OutletType"),
             };
             outlet.turn_on();
         }
         {
             let outlet: &Outlet = match outlet_device {
-                DeviceType::OutletType(ref o) => o,
+                Device::OutletType(ref o) => o,
                 _ => panic!("Expected OutletType"),
             };
             assert_eq!(outlet.state(), OutletState::On);
@@ -146,6 +159,25 @@ mod tests {
         assert_eq!(
             outlet_device.info(),
             "Smart Outlet: Living Room - Current State: On, Power Usage: 150 Watt"
+        );
+    }
+
+    #[test]
+    fn device_from_test() {
+        let outlet = Outlet::new("Test Outlet".to_string(), OutletState::On, 200);
+        let device_from_outlet: Device = outlet.into();
+        assert_eq!(device_from_outlet.name(), "Test Outlet");
+        assert_eq!(
+            device_from_outlet.info(),
+            "Smart Outlet: Test Outlet - Current State: On, Power Usage: 200 Watt"
+        );
+
+        let thermometer = Thermometer::new("Test Thermometer".to_string(), 25.0 as Celsius);
+        let device_from_thermometer: Device = thermometer.into();
+        assert_eq!(device_from_thermometer.name(), "Test Thermometer");
+        assert_eq!(
+            device_from_thermometer.info(),
+            "Thermometer: Test Thermometer - Current Temperature: 25.00°C"
         );
     }
 }

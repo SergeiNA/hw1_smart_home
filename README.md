@@ -1,88 +1,107 @@
-# hw1_smart_home
+# hw2\_smart\_home\_plus
 
 ## Homework Assignment
 
-### Smart Home Library Starter Project
+### Smart Home: Dynamic Extensions & Error Handling
 
-### 🎯 Goal
+### 🌟 Goal
 
-Create a starter implementation of a “Smart Home” library, along with a simple example demonstrating its functionality.
+Extend the functionality of the Smart Home library using features from the Rust standard library:
 
-⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻
+* Add proper error handling.
+* Switch to dynamic, string-based collections.
+* Enable runtime changes to the smart home structure.
 
-###  📦 Project Structure
+---
 
-The library and its usage example are implemented within a single Cargo package:
-	•	The library is implemented as a lib crate.
-	•	The example is implemented as a bin crate.
+### 📦 Project Structure
 
-⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻
+All code is implemented in a single Cargo package:
 
-### 🧩 Library Requirements
+* The library is implemented as a `lib` crate.
+* The example application is implemented as a `bin` crate.
 
-1. Smart Thermometer
+---
 
-Implement a type representing a smart thermometer. It should provide:
-	•	A constructor that accepts initial field values.
-	•	A method to return the current temperature (use an arbitrary number).
+### 🮩 Library Requirements
 
-⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻
+#### 1. ✅ Error Handling
 
-2. Smart Outlet
+Update methods that retrieve rooms or devices:
 
-Implement a type representing a smart power outlet. It should provide:
-	•	A constructor that accepts initial field values.
-	•	Methods to turn the outlet on/off.
-	•	A method to query current state (on or off).
-	•	A method to return the current power usage:
-	•	If off → returns 0.
-	•	If on → returns an arbitrary number.
+* Replace panics with safe returns using `Option` or `Result`.
+* Implement a custom error type for `SmartHome` lookup operations.
+* The error type must implement `std::error::Error`.
 
-⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻
+---
 
-3. Smart Device
+#### 2. 🔑 Key-Based Storage
 
-Implement an enum or struct that contains either a smart thermometer or a smart outlet, and provides:
-	•	A method to print the state of the device to standard output.
+Replace fixed-size arrays with dynamic, key-based collections:
 
-⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻
+* Use associative containers (e.g., `HashMap<String, ...>`) from `std::collections`.
+* Use strings as keys for both rooms and devices.
 
-4. Smart Room
+---
 
-Implement a type representing a room that contains an array of smart devices. It should provide:
-	•	A constructor that accepts an array of devices.
-	•	Methods to:
-	•	Get a reference to a device by index.
-	•	Get a mutable reference to a device by index.
-	•	Print a status report of all devices in the room.
+#### 3. 🔄 Dynamic Modifications
 
-⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻
+Support modifying the smart home at runtime:
 
-5. Smart Home
+* Add methods to insert/remove devices in a room.
+* Add methods to insert/remove rooms in the home.
+* Add a method on the smart home to retrieve a reference to a device by (room\_name, device\_name).
 
-Implement a type representing a smart home, which contains an array of rooms. It should provide:
-	•	A constructor that accepts an array of rooms.
-	•	Methods to:
-	•	Get a reference to a room by index.
-	•	Get a mutable reference to a room by index.
-	•	Print a status report of all rooms.
+	* Return an appropriate error if lookup fails.
 
-You can choose arbitrary array sizes.
-If an index is out of bounds, the application must terminate with a panic!().
+---
 
-⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻
+#### 4. 🧠 Trait Implementations
+
+* Implement the `Debug` trait for all types.
+* Implement the `From` trait for converting smart outlet and smart thermometer into a smart device enum.
+
+---
+
+#### 5. 🚰 Macro for Room Creation
+
+Write a macro to simplify room construction:
+
+* Accept key-value pairs like `("outlet1", SmartOutlet::new(...))`
+* Return a `SmartRoom` with the devices mapped by the given keys.
+
+---
+
+#### 6. 📊 Status Report Abstraction
+
+* Extract status reporting into a trait.
+* Implement the trait for all types that can generate a report: device, room, and home.
+
+---
 
 ### 🔧 Example Binary Requirements
 
-Implemented as a bin crate.
-	•	Create an instance of the smart home and print a full report of its contents.
-	•	Modify the home: turn off a smart outlet in one of the rooms.
-	•	Print the report again.
+Implemented as a `bin` crate.
 
-⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻
+Demonstrate:
+
+* Adding and removing rooms at runtime.
+* Adding and removing devices at runtime.
+* Retrieving and printing a report for:
+
+	* The entire smart home.
+	* A single room.
+	* A single device.
+
+Add a helper function that takes any object implementing the report trait and prints its report.
+
+Also demonstrate error handling when looking up rooms or devices.
+
+---
 
 ### ✅ Evaluation Criteria
-	•	The package builds successfully with cargo build.
-	•	The binary example runs successfully and prints the smart home report.
-	•	Commands cargo clippy and cargo fmt --check return with no warnings or errors.
-	•	Unit tests are present and pass successfully.
+
+* The package builds successfully with `cargo build`.
+* The example application runs and prints smart home reports.
+* `cargo clippy` and `cargo fmt --check` return without warnings or errors.
+* Unit tests are implemented and pass successfully.
