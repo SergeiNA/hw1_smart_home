@@ -27,7 +27,7 @@ pub trait OutletDevice: Information {
     fn power_usage(&self) -> Watt;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Outlet {
     name: String,
     state: OutletState,
