@@ -1,16 +1,12 @@
-# hw2\_smart\_home\_plus
+# hw3_smart_home_devices
 
 ## Homework Assignment
 
-### Smart Home: Dynamic Extensions & Error Handling
+### Smart Home: Remote Device Interaction & Simulators
 
 ### 🌟 Goal
 
-Extend the functionality of the Smart Home library using features from the Rust standard library:
-
-* Add proper error handling.
-* Switch to dynamic, string-based collections.
-* Enable runtime changes to the smart home structure.
+Implement remote interaction logic for smart devices (outlet & thermometer) and create device simulators for testing.
 
 ---
 
@@ -18,90 +14,68 @@ Extend the functionality of the Smart Home library using features from the Rust 
 
 All code is implemented in a single Cargo package:
 
-* The library is implemented as a `lib` crate.
-* The example application is implemented as a `bin` crate.
+- The library is implemented as a `lib` crate.
+- The simulators and example application are implemented as `bin` crates.
 
 ---
 
 ### 🮩 Library Requirements
 
-#### 1. ✅ Error Handling
+#### 1. 🔌 Smart Outlet
 
-Update methods that retrieve rooms or devices:
-
-* Replace panics with safe returns using `Option` or `Result`.
-* Implement a custom error type for `SmartHome` lookup operations.
-* The error type must implement `std::error::Error`.
-
----
-
-#### 2. 🔑 Key-Based Storage
-
-Replace fixed-size arrays with dynamic, key-based collections:
-
-* Use associative containers (e.g., `HashMap<String, ...>`) from `std::collections`.
-* Use strings as keys for both rooms and devices.
+- Functionality remains the same:
+	- Turn on/off.
+	- Query power consumption.
+- Interaction is synchronous, via TCP.
+- The outlet can use:
+	- Real TCP communication, or
+	- Simulation mode for testing.
 
 ---
 
-#### 3. 🔄 Dynamic Modifications
+#### 2. 🌡️ Smart Thermometer
 
-Support modifying the smart home at runtime:
-
-* Add methods to insert/remove devices in a room.
-* Add methods to insert/remove rooms in the home.
-* Add a method on the smart home to retrieve a reference to a device by (room\_name, device\_name).
-
-	* Return an appropriate error if lookup fails.
-
----
-
-#### 4. 🧠 Trait Implementations
-
-* Implement the `Debug` trait for all types.
-* Implement the `From` trait for converting smart outlet and smart thermometer into a smart device enum.
+- Functionality remains the same:
+	- Return current temperature.
+- Temperature values are received over UDP in a parallel thread.
+- The thread is:
+	- Started when the thermometer is created.
+	- Stopped when the thermometer object is destroyed.
+- The thermometer always returns the latest received value.
+- The thermometer can also simulate remote data reception (for testing).
 
 ---
 
-#### 5. 🚰 Macro for Room Creation
+### 🖥️ Simulator Requirements
 
-Write a macro to simplify room construction:
+#### 1. Smart Outlet Simulator
 
-* Accept key-value pairs like `("outlet1", SmartOutlet::new(...))`
-* Return a `SmartRoom` with the devices mapped by the given keys.
+- Reads the TCP listening address from command-line arguments.
+- Implements non-blocking TCP communication.
+- Maintains outlet state (on/off).
+- Supports multiple concurrent client connections.
 
----
+#### 2. Smart Thermometer Simulator
 
-#### 6. 📊 Status Report Abstraction
-
-* Extract status reporting into a trait.
-* Implement the trait for all types that can generate a report: device, room, and home.
+- Implements non-blocking UDP communication.
+- Reads the target UDP address and sending period from a configuration file.
+- Sends random temperature values to the specified address at the given interval.
 
 ---
 
 ### 🔧 Example Binary Requirements
 
-Implemented as a `bin` crate.
+Add an example smart home application that uses both outlets and thermometers connected to simulators.
 
-Demonstrate:
-
-* Adding and removing rooms at runtime.
-* Adding and removing devices at runtime.
-* Retrieving and printing a report for:
-
-	* The entire smart home.
-	* A single room.
-	* A single device.
-
-Add a helper function that takes any object implementing the report trait and prints its report.
-
-Also demonstrate error handling when looking up rooms or devices.
+- The example must:
+	- Print a report of the smart home state if simulators are running.
+	- Report an error if any device fails to retrieve data.
 
 ---
 
 ### ✅ Evaluation Criteria
 
-* The package builds successfully with `cargo build`.
-* The example application runs and prints smart home reports.
-* `cargo clippy` and `cargo fmt --check` return without warnings or errors.
-* Unit tests are implemented and pass successfully.
+- The package builds successfully with `cargo build`.
+- The example application runs and prints smart home reports.
+- `cargo clippy` and `cargo fmt --check` return without warnings or errors.
+- Unit tests are implemented and pass successfully.
