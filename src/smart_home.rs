@@ -147,6 +147,11 @@ impl SmartHome {
     pub fn remove_room(&mut self, room: &str) -> Option<SmartRoom> {
         self.rooms.remove(room)
     }
+
+    /// Returns the number of rooms in the smart home
+    pub fn size(&self) -> usize {
+        self.rooms.len()
+    }
 }
 
 /// A trait for accessing rooms in a smart home system
@@ -182,6 +187,54 @@ impl AccessRoom for SmartHome {
     }
 }
 
+pub struct NoRooms;
+pub struct AtLeastOneRoom;
+
+pub struct SmartHomeBuilder<RoomState> {
+    name: String,
+    rooms: Vec<SmartRoom>,
+    _room_state: std::marker::PhantomData<RoomState>,
+}
+
+impl SmartHomeBuilder<NoRooms> {
+    pub fn new(name: &str) -> Self {
+        SmartHomeBuilder {
+            name: name.to_string(),
+            rooms: Vec::new(),
+            _room_state: std::marker::PhantomData {},
+        }
+    }
+
+    pub fn add_room(mut self, room: SmartRoom) -> SmartHomeBuilder<AtLeastOneRoom> {
+        self.rooms.push(room);
+        SmartHomeBuilder {
+            name: self.name,
+            rooms: self.rooms,
+            _room_state: std::marker::PhantomData {},
+        }
+    }
+}
+
+impl SmartHomeBuilder<AtLeastOneRoom> {
+    pub fn add_room(mut self, room: SmartRoom) -> Self {
+        self.rooms.push(room);
+        self
+    }
+    pub fn add_device(mut self, key: &str, device: Device) -> Self {
+        self.rooms
+            .last_mut()
+            .expect("No rooms found")
+            .add_device(key.to_string(), device);
+        self
+    }
+    pub fn build(self) -> SmartHome {
+        SmartHome {
+            name: self.name,
+            rooms: self.rooms.into_iter().map(|r| (r.name(), r)).collect(),
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! create_home {
     ($name:expr, $({ $key:expr , $value:expr }),* $(,)? ) => {{
@@ -198,7 +251,9 @@ macro_rules! create_home {
 mod tests {
     use crate::create_room;
     use crate::smart_devices::{Celsius, Device, OutletDevice, OutletState, Watt};
-    use crate::smart_home::{AccessRoom, DeviceAccessError, RoomAccessError, SmartHome};
+    use crate::smart_home::{
+        AccessRoom, DeviceAccessError, RoomAccessError, SmartHome, SmartHomeBuilder,
+    };
     use crate::smart_room::SmartRoom;
     use crate::traits::Information;
     use std::collections::HashMap;
@@ -320,7 +375,7 @@ mod tests {
         );
 
         assert_eq!(home.name(), "My Smart Home");
-        assert_eq!(home.rooms.len(), 3);
+        assert_eq!(home.size(), 3);
         assert_eq!(home.view_room("Bedroom").unwrap().name(), "Bedroom");
         assert_eq!(home.view_room("Living Room").unwrap().name(), "Living Room");
         assert_eq!(
@@ -509,6 +564,57 @@ Smart Room: Living Room:
     }
 
     #[test]
+    fn smart_home_builder_test() {
+        let home = SmartHomeBuilder::new("My Smart Home")
+            .add_room(SmartRoom::new("Bedroom".to_string(), HashMap::new()))
+            .add_device(
+                "Attached Outlet",
+                Device::new_outlet("Attached Outlet".to_string(), OutletState::On, 250 as Watt),
+            )
+            .add_device(
+                "Light Outlet",
+                Device::new_outlet("Light Outlet".to_string(), OutletState::Off, 150 as Watt),
+            )
+            .add_device(
+                "Electron thermometer",
+                Device::new_thermometer("Electron thermometer".to_string(), 22.5 as Celsius),
+            )
+            .add_room(SmartRoom::new("Living Room".to_string(), HashMap::new()))
+            .add_device(
+                "PC",
+                Device::new_outlet("PC".to_string(), OutletState::On, 250 as Watt),
+            )
+            .add_device(
+                "Electronic thermometer",
+                Device::new_thermometer("Electronic thermometer".to_string(), 22.5 as Celsius),
+            )
+            .build();
+
+        assert_eq!(home.name(), "My Smart Home");
+        assert_eq!(home.size(), 2);
+        assert_eq!(home.view_room("Bedroom").unwrap().name(), "Bedroom");
+        assert_eq!(home.view_room("Bedroom").unwrap().size(), 3);
+        assert_eq!(home.view_room("Living Room").unwrap().name(), "Living Room");
+        assert_eq!(home.view_room("Living Room").unwrap().size(), 2);
+        assert_eq!(
+            home.view_room("Bedroom")
+                .unwrap()
+                .view_device("Attached Outlet")
+                .unwrap()
+                .name(),
+            "Attached Outlet"
+        );
+        assert_eq!(
+            home.view_room("Bedroom")
+                .unwrap()
+                .view_device("Light Outlet")
+                .unwrap()
+                .name(),
+            "Light Outlet"
+        );
+    }
+
+    #[test]
     fn smart_home_add_rooms_test() {
         let mut home = SmartHome::new("My Home".to_string(), HashMap::new());
         let bedroom = SmartRoom::new("Bedroom".to_string(), HashMap::new());
@@ -519,7 +625,7 @@ Smart Room: Living Room:
         home.add_room(living_room);
         assert_eq!(home.view_room("Living Room").unwrap().name(), "Living Room");
 
-        assert_eq!(home.rooms.len(), 2);
+        assert_eq!(home.size(), 2);
     }
 
     #[test]
@@ -532,7 +638,7 @@ Smart Room: Living Room:
         home.remove_room("Bedroom");
         assert!(home.view_room("Bedroom").is_none());
 
-        assert_eq!(home.rooms.len(), 0);
+        assert_eq!(home.size(), 0);
     }
 
     #[test]

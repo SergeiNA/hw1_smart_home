@@ -110,6 +110,11 @@ impl SmartRoom {
     pub fn remove_device(&mut self, key: &str) -> Option<Device> {
         self.devices.remove(key)
     }
+
+    /// Returns the number of devices in the room.
+    pub fn size(&self) -> usize {
+        self.devices.len()
+    }
 }
 
 /// Trait for types that provide controlled access to devices.
@@ -155,6 +160,29 @@ impl AccessDevice for SmartRoom {
     }
 }
 
+pub struct SmartRoomHelpBuilder {
+    room: SmartRoom,
+}
+
+impl SmartRoomHelpBuilder {
+    pub fn new(name: &str) -> Self {
+        SmartRoomHelpBuilder {
+            room: SmartRoom {
+                name: name.to_string(),
+                devices: HashMap::new(),
+            },
+        }
+    }
+
+    pub fn add_device(&mut self, key: &str, device: Device) {
+        self.room.add_device(key.to_string(), device);
+    }
+
+    pub fn build(self) -> SmartRoom {
+        self.room
+    }
+}
+
 #[macro_export]
 macro_rules! create_room {
     ($name:expr, $( $key:expr => $value:expr ),* $(,)? ) => {{
@@ -178,14 +206,14 @@ mod tests {
     fn smart_room_create_empty_test() {
         let room = SmartRoom::new("Living Room".to_string(), HashMap::new());
         assert_eq!(room.name(), "Living Room");
-        assert_eq!(room.devices.len(), 0);
+        assert_eq!(room.size(), 0);
     }
 
     #[test]
     fn smart_room_view_index_out_of_bounds_test() {
         let room = SmartRoom::new("Living Room".to_string(), HashMap::new());
         assert_eq!(room.name(), "Living Room");
-        assert_eq!(room.devices.len(), 0);
+        assert_eq!(room.size(), 0);
         assert_eq!(room.view_device("Some device"), None);
     }
 
@@ -193,7 +221,7 @@ mod tests {
     fn smart_room_get_index_out_of_bounds_test() {
         let mut room = SmartRoom::new("Living Room".to_string(), HashMap::new());
         assert_eq!(room.name(), "Living Room");
-        assert_eq!(room.devices.len(), 0);
+        assert_eq!(room.size(), 0);
         assert_eq!(room.get_device("Some device"), None);
     }
 
@@ -207,12 +235,37 @@ mod tests {
                 "Electronic thermometer" => Device::new_thermometer("Electronic thermometer".to_string(), 22.5 as Celsius)
             );
             assert_eq!(room.name(), "Living Room");
-            assert_eq!(room.devices.len(), 3);
+            assert_eq!(room.size(), 3);
         }
         {
             let room = create_room!("Kitchen",);
             assert_eq!(room.name(), "Kitchen");
-            assert_eq!(room.devices.len(), 0);
+            assert_eq!(room.size(), 0);
+        }
+    }
+
+    #[test]
+    fn smart_room_help_builder_create_test() {
+        {
+            let room = {
+                let mut room_help_builder = SmartRoomHelpBuilder::new("Living Room");
+                room_help_builder.add_device(
+                    "Lighter",
+                    Device::new_outlet("Lighter".to_string(), OutletState::On, 100 as Watt),
+                );
+                room_help_builder.add_device(
+                    "PC",
+                    Device::new_outlet("PC".to_string(), OutletState::On, 250 as Watt),
+                );
+                room_help_builder.add_device(
+                    "Electronic thermometer",
+                    Device::new_thermometer("Electronic thermometer".to_string(), 22.5 as Celsius),
+                );
+                room_help_builder.build()
+            };
+            assert_eq!(room.name(), "Living Room");
+            assert_eq!(room.size(), 3);
+            assert_eq!(room.view_device("Lighter").is_some(), true);
         }
     }
 
@@ -225,7 +278,7 @@ mod tests {
             "Electronic thermometer" => Device::new_thermometer("Electronic thermometer".to_string(), 22.5 as Celsius)
         );
 
-        assert_eq!(room.devices.len(), 3);
+        assert_eq!(room.size(), 3);
         assert_eq!(room.view_device("Some device"), None);
         assert_eq!(room.view_device("Lighter").is_some(), true);
         assert_eq!(
@@ -295,7 +348,7 @@ mod tests {
         let mut room = SmartRoom::new("Living Room".to_string(), HashMap::new());
         let outlet = Device::new_outlet("Smart Outlet".to_string(), OutletState::On, 150 as Watt);
         room.add_device("Smart Outlet".to_string(), outlet);
-        assert_eq!(room.devices.len(), 1);
+        assert_eq!(room.size(), 1);
         assert_eq!(
             room.view_device("Smart Outlet")
                 .unwrap_or(&TEST_DEFAULT_DEVICE)
@@ -323,7 +376,7 @@ mod tests {
             "Smart Thermometer".to_string(),
             Device::new_thermometer("Smart Thermometer".to_string(), 22.5 as Celsius),
         );
-        assert_eq!(room.devices.len(), 3);
+        assert_eq!(room.size(), 3);
         assert_eq!(
             room.view_device("Smart Outlet lighter").unwrap().name(),
             "Smart Outlet lighter"
@@ -355,13 +408,13 @@ Smart Room: Living Room:
         room.add_device("Smart Outlet".to_string(), outlet);
 
         assert_eq!(room.remove_device("Not existing device"), None);
-        assert_eq!(room.devices.len(), 1);
+        assert_eq!(room.size(), 1);
 
         let removed_device = room
             .remove_device("Smart Outlet")
             .unwrap_or(TEST_DEFAULT_DEVICE);
         assert_eq!(removed_device.name(), "Smart Outlet");
-        assert_eq!(room.devices.len(), 0);
+        assert_eq!(room.size(), 0);
 
         assert_eq!(room.remove_device("Smart Outlet"), None);
     }
@@ -386,25 +439,25 @@ Smart Room: Living Room:
             Device::new_thermometer("Smart Thermometer".to_string(), 22.5 as Celsius),
         );
 
-        assert_eq!(room.devices.len(), 3);
+        assert_eq!(room.size(), 3);
 
         let removed_device = room
             .remove_device("Smart Outlet lighter")
             .unwrap_or(TEST_DEFAULT_DEVICE);
         assert_eq!(removed_device.name(), "Smart Outlet lighter");
-        assert_eq!(room.devices.len(), 2);
+        assert_eq!(room.size(), 2);
 
         let removed_device = room
             .remove_device("Smart Outlet PC")
             .unwrap_or(TEST_DEFAULT_DEVICE);
         assert_eq!(removed_device.name(), "Smart Outlet PC");
-        assert_eq!(room.devices.len(), 1);
+        assert_eq!(room.size(), 1);
 
         let removed_device = room
             .remove_device("Smart Thermometer")
             .unwrap_or(TEST_DEFAULT_DEVICE);
         assert_eq!(removed_device.name(), "Smart Thermometer");
-        assert_eq!(room.devices.len(), 0);
+        assert_eq!(room.size(), 0);
 
         assert_eq!(room.remove_device("Smart Outlet lighter"), None);
         assert_eq!(room.remove_device("Smart Outlet PC"), None);
@@ -448,7 +501,7 @@ Smart Room: Living Room:
             "Smart Outlet PC" => Device::new_outlet("Smart Outlet PC".to_string(), OutletState::On, 250 as Watt),
         );
 
-        assert_eq!(room.devices.len(), 2);
+        assert_eq!(room.size(), 2);
         assert_eq!(
             room.view_device("Smart Outlet lighter")
                 .unwrap_or(&TEST_DEFAULT_DEVICE)
