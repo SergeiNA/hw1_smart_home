@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::fmt::Display;
 
-#[derive(Debug, Clone)]
+// #[derive(Debug, Clone)]
 pub struct SmartHome {
     name: String,
     rooms: HashMap<String, SmartRoom>,
@@ -59,7 +59,7 @@ impl Information for SmartHome {
     }
 
     fn info(&self) -> String {
-        let sorted_rooms: BTreeMap<String, SmartRoom> = self.clone().rooms.into_iter().collect();
+        let sorted_rooms: BTreeMap<&String, &SmartRoom> = self.rooms.iter().collect();
         let enumerated_rooms: Vec<String> = sorted_rooms
             .iter()
             .enumerate()

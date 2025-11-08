@@ -1,14 +1,14 @@
 use crate::smart_devices::Device;
-use crate::traits::Information;
+use crate::traits::{Information, Subscriber};
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::string::String;
 
-#[derive(Debug, Clone)]
 pub struct SmartRoom {
     name: String,
     devices: HashMap<String, Device>,
+    subs: Vec<Box<dyn Subscriber>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -30,7 +30,7 @@ impl Information for SmartRoom {
     }
 
     fn info(&self) -> String {
-        let sorted_devices: BTreeMap<String, Device> = self.clone().devices.into_iter().collect();
+        let sorted_devices: BTreeMap<String, Device> = self.devices.clone().into_iter().collect();
         let enumerated_devices: Vec<String> = sorted_devices
             .iter()
             .enumerate()
@@ -42,6 +42,15 @@ impl Information for SmartRoom {
             enumerated_devices.len(),
             enumerated_devices.join("\n  --------------------------------------\n  ")
         )
+    }
+}
+
+impl Debug for SmartRoom {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SmartRoom")
+            .field("name", &self.name)
+            .field("devices", &self.devices)
+            .finish()
     }
 }
 
@@ -57,7 +66,11 @@ impl SmartRoom {
     ///
     /// A new SmartRoom instance.
     pub fn new(name: String, devices: HashMap<String, Device>) -> Self {
-        SmartRoom { name, devices }
+        SmartRoom {
+            name,
+            devices,
+            subs: Vec::new(),
+        }
     }
 
     /// Returns an immutable reference to the device with the given key.
@@ -95,7 +108,8 @@ impl SmartRoom {
     /// * `key` - The unique identifier for the device.
     /// * `device` - The device to be added to the room.
     pub fn add_device(&mut self, key: String, device: Device) {
-        self.devices.insert(key, device);
+        self.devices.insert(key, device.clone());
+        self.notify_device_added(&device);
     }
 
     /// Removes a device from the room by its key.
@@ -108,12 +122,35 @@ impl SmartRoom {
     ///
     /// An `Option` containing the removed device if it was found, or `None` if not found.
     pub fn remove_device(&mut self, key: &str) -> Option<Device> {
-        self.devices.remove(key)
+        let removed_device = self.devices.remove(key);
+        if let Some(ref device) = removed_device {
+            self.notify_device_removed(&device);
+        }
+        removed_device
     }
 
     /// Returns the number of devices in the room.
     pub fn size(&self) -> usize {
         self.devices.len()
+    }
+
+    pub fn subscribe<S>(&mut self, subscriber: S)
+    where
+        S: Subscriber + 'static,
+    {
+        self.subs.push(Box::new(subscriber));
+    }
+
+    fn notify_device_added(&mut self, device: &Device) {
+        for sub in &mut self.subs {
+            sub.on_device_added(device);
+        }
+    }
+
+    fn notify_device_removed(&mut self, device: &Device) {
+        for sub in &mut self.subs {
+            sub.on_device_removed(device);
+        }
     }
 }
 
@@ -170,6 +207,7 @@ impl SmartRoomHelpBuilder {
             room: SmartRoom {
                 name: name.to_string(),
                 devices: HashMap::new(),
+                subs: Vec::new(),
             },
         }
     }
