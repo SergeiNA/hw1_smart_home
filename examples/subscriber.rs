@@ -13,7 +13,7 @@ fn main() {
         OutletState::On,
         150 as Watt,
     );
-    let subscriber = DefaultSubscriber::default();
+    let subscriber = DefaultSubscriber;
 
     let mut room = SmartRoom::new("Living Room".to_string(), HashMap::new());
     room.subscribe(subscriber);

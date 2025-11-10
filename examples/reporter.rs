@@ -14,10 +14,10 @@ fn main() {
     let room_thermometer = Device::new_thermometer("Room Thermometer".to_string(), 21.0 as Celsius);
     let mut room = SmartRoom::new("Living Room".to_string(), HashMap::new());
     room.add_device("Thermometer".to_string(), room_thermometer);
-    let reporter = Reporter::new()
-        .add(&thermometer)
-        .add(&outlet)
-        .add(&room)
+    let reporter = Reporter::default()
+        .append(&thermometer)
+        .append(&outlet)
+        .append(&room)
         .report();
     for report in reporter {
         println!("{}", report);

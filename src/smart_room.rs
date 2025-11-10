@@ -124,7 +124,7 @@ impl SmartRoom {
     pub fn remove_device(&mut self, key: &str) -> Option<Device> {
         let removed_device = self.devices.remove(key);
         if let Some(ref device) = removed_device {
-            self.notify_device_removed(&device);
+            self.notify_device_removed(device);
         }
         removed_device
     }
@@ -303,7 +303,7 @@ mod tests {
             };
             assert_eq!(room.name(), "Living Room");
             assert_eq!(room.size(), 3);
-            assert_eq!(room.view_device("Lighter").is_some(), true);
+            assert!(room.view_device("Lighter").is_some());
         }
     }
 
@@ -318,7 +318,7 @@ mod tests {
 
         assert_eq!(room.size(), 3);
         assert_eq!(room.view_device("Some device"), None);
-        assert_eq!(room.view_device("Lighter").is_some(), true);
+        assert!(room.view_device("Lighter").is_some());
         assert_eq!(
             room.view_device("Lighter")
                 .unwrap_or(&TEST_DEFAULT_DEVICE)
@@ -331,7 +331,7 @@ mod tests {
                 .info(),
             "Smart Outlet: Lighter - Current State: On, Power Usage: 100 Watt"
         );
-        assert_eq!(room.view_device("PC").is_some(), true);
+        assert!(room.view_device("PC").is_some());
         assert_eq!(
             room.view_device("PC")
                 .unwrap_or(&TEST_DEFAULT_DEVICE)
@@ -344,7 +344,7 @@ mod tests {
                 .info(),
             "Smart Outlet: PC - Current State: On, Power Usage: 250 Watt"
         );
-        assert_eq!(room.view_device("Electronic thermometer").is_some(), true);
+        assert!(room.view_device("Electronic thermometer").is_some());
         assert_eq!(
             room.view_device("Electronic thermometer")
                 .unwrap_or(&TEST_DEFAULT_DEVICE)

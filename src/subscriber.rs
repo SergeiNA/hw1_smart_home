@@ -22,25 +22,26 @@ pub enum DeviceEvent<'a> {
 
 impl<F> Subscriber for F
 where
-    F: for<'a> FnMut(DeviceEvent),
+    F: for<'a> FnMut(DeviceEvent<'a>),
 {
     fn on_device_added(&mut self, device: &Device) {
         println!("[closure sub] on device: {}", device.name());
         (self)(DeviceEvent::Added(device));
     }
     fn on_device_removed(&mut self, device: &Device) {
-        println!("[use closure sub] on device: {}", device.name());
+        println!("[closure sub] on device: {}", device.name());
         (self)(DeviceEvent::Removed(device));
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::smart_devices::{Device, OutletState, Watt};
 
     #[test]
     fn test_default_subscriber() {
-        let mut subscriber = DefaultSubscriber::default();
+        let mut subscriber = DefaultSubscriber;
         let outlet = Device::new_outlet("Test Outlet".to_string(), OutletState::On, 100 as Watt);
         subscriber.on_device_added(&outlet);
         subscriber.on_device_removed(&outlet);

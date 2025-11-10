@@ -4,8 +4,9 @@ pub struct Reporter<'a, T = ()> {
     item: T,
     _marker: std::marker::PhantomData<&'a ()>, // holds lifetime
 }
-impl<'a> Reporter<'a, ()> {
-    pub fn new() -> Self {
+
+impl<'a> Default for Reporter<'a, ()> {
+    fn default() -> Self {
         Reporter {
             item: (),
             _marker: std::marker::PhantomData,
@@ -14,7 +15,7 @@ impl<'a> Reporter<'a, ()> {
 }
 
 impl<'a, T> Reporter<'a, T> {
-    pub fn add<U: Information + 'a>(self, item: &'a U) -> Reporter<'a, (T, &'a U)> {
+    pub fn append<U: Information + 'a>(self, item: &'a U) -> Reporter<'a, (T, &'a U)> {
         Reporter {
             item: (self.item, item),
             _marker: std::marker::PhantomData,
@@ -65,10 +66,10 @@ mod tests {
             Device::new_thermometer("Room Thermometer".to_string(), 21.0 as Celsius);
         let mut room = SmartRoom::new("Living Room".to_string(), HashMap::new());
         room.add_device("Thermometer".to_string(), room_thermometer);
-        let reporter = Reporter::new()
-            .add(&thermometer)
-            .add(&outlet)
-            .add(&room)
+        let reporter = Reporter::default()
+            .append(&thermometer)
+            .append(&outlet)
+            .append(&room)
             .report();
 
         let expected = r#"Thermometer: Living Room Thermometer - Current Temperature: 22.50°C
@@ -94,11 +95,11 @@ Smart Room: Living Room:
         );
         let outlet_bed_room =
             Device::new_outlet("Bed Room Outlet".to_string(), OutletState::On, 220 as Watt);
-        let reporter = Reporter::new()
-            .add(&thermometer_living_room)
-            .add(&thermometer_bedroom_room)
-            .add(&outlet_living_room)
-            .add(&outlet_bed_room)
+        let reporter = Reporter::default()
+            .append(&thermometer_living_room)
+            .append(&thermometer_bedroom_room)
+            .append(&outlet_living_room)
+            .append(&outlet_bed_room)
             .report();
 
         let expected = r#"Thermometer: Living Room Thermometer - Current Temperature: 22.50°C
