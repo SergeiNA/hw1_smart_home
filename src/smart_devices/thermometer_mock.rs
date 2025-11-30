@@ -6,21 +6,21 @@ pub trait TemperatureSensor: Information {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Thermometer {
+pub struct ThermometerMock {
     name: String,
     temperature: Celsius,
 }
 
-impl Thermometer {
+impl ThermometerMock {
     pub fn new(name: String, initial_temperature: Celsius) -> Self {
-        Thermometer {
+        ThermometerMock {
             name,
             temperature: initial_temperature,
         }
     }
 }
 
-impl Information for Thermometer {
+impl Information for ThermometerMock {
     fn name(&self) -> String {
         self.name.clone()
     }
@@ -32,7 +32,7 @@ impl Information for Thermometer {
     }
 }
 
-impl TemperatureSensor for Thermometer {
+impl TemperatureSensor for ThermometerMock {
     fn current_temperature(&self) -> Celsius {
         self.temperature
     }
@@ -44,7 +44,7 @@ mod tests {
 
     #[test]
     fn thermometer_create_test() {
-        let thermometer = Thermometer::new("Living Room".to_string(), 22.5 as Celsius);
+        let thermometer = ThermometerMock::new("Living Room".to_string(), 22.5 as Celsius);
         assert_eq!(thermometer.name(), "Living Room");
         assert_eq!(thermometer.current_temperature(), 22.5 as Celsius);
         assert_eq!(

@@ -1,3 +1,5 @@
+mod protocols;
+pub mod simulators;
 pub mod smart_devices;
 pub mod smart_home;
 pub mod smart_room;

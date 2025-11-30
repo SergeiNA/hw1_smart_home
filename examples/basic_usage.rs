@@ -1,6 +1,7 @@
 use smart_home::create_home;
 use smart_home::create_room;
-use smart_home::smart_devices::{Celsius, Device, OutletDevice, OutletState, Watt};
+use smart_home::smart_devices::types::OutletState;
+use smart_home::smart_devices::{Celsius, Device, OutletDevice, Watt};
 use smart_home::smart_home::SmartHome;
 use smart_home::smart_room::SmartRoom;
 use smart_home::traits::Information;
@@ -56,12 +57,24 @@ fn main() {
             .get_room("Kitchen Room")
             .and_then(|room| room.get_device("Teapot Outlet"));
         let outlet = match device {
-            Some(Device::OutletType(outlet)) => outlet,
+            Some(Device::OutletTypeMock(outlet)) => outlet,
             _ => panic!("Expected OutletType"),
         };
-        assert_eq!(outlet.state(), OutletState::Off);
-        outlet.switch();
-        assert_eq!(outlet.state(), OutletState::On);
+        let state = match outlet.state() {
+            Ok(s) => s,
+            Err(e) => panic!("Failed to get outlet state: {}", e),
+        };
+        assert_eq!(state, OutletState::Off);
+
+        match outlet.switch() {
+            Ok(s) => s,
+            Err(e) => panic!("Failed to get outlet state: {}", e),
+        };
+        let state = match outlet.state() {
+            Ok(s) => s,
+            Err(e) => panic!("Failed to get outlet state: {}", e),
+        };
+        assert_eq!(state, OutletState::On);
     }
 
     {
@@ -69,12 +82,24 @@ fn main() {
             .get_room("Living Room")
             .and_then(|room| room.get_device("Lighter"));
         let outlet = match device {
-            Some(Device::OutletType(outlet)) => outlet,
+            Some(Device::OutletTypeMock(outlet)) => outlet,
             _ => panic!("Expected OutletType"),
         };
-        assert_eq!(outlet.state(), OutletState::On);
-        outlet.turn_off();
-        assert_eq!(outlet.state(), OutletState::Off);
+        let state = match outlet.state() {
+            Ok(s) => s,
+            Err(e) => panic!("Failed to get outlet state: {}", e),
+        };
+        assert_eq!(state, OutletState::On);
+
+        match outlet.switch() {
+            Ok(s) => s,
+            Err(e) => panic!("Failed to get outlet state: {}", e),
+        };
+        let state = match outlet.state() {
+            Ok(s) => s,
+            Err(e) => panic!("Failed to get outlet state: {}", e),
+        };
+        assert_eq!(state, OutletState::Off);
     }
 
     println!(

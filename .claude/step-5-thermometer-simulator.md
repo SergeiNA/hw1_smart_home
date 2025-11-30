@@ -4,450 +4,676 @@
 - [Step 1: Protocol Design](step-1-protocol-design.md)
 - [Step 3: Add UDP Support to Thermometer](step-3-thermometer-remote.md)
 
-**Goal:** Create a standalone binary that simulates a physical thermometer by sending temperature readings via UDP
+**Goal:** Create a library-based thermometer simulator with a simple spawn API
 
 ---
 
 ## Overview
 
 The thermometer simulator will:
-- Read configuration from a TOML file
-- Generate realistic temperature values (random walk)
+- Be a library module in `src/simulators/thermometer.rs`
+- Provide a simple `ThermometerSimulator::spawn()` API
 - Send temperature readings via UDP at regular intervals
-- Run indefinitely until stopped
+- Generate realistic temperature values (random walk, sine wave, etc.)
+- Return a handle that can be used to control or stop the simulator
+- Can be used from examples, binaries, or tests
 
----
+### Architecture
 
-## 5.1 Create Configuration File Format
-
-**File:** `thermometer_config.toml` (project root)
-
-```toml
-[thermometer]
-# Target address where temperature readings will be sent
-target_address = "127.0.0.1:9001"
-
-# How often to send readings (milliseconds)
-send_interval_ms = 1000
-
-# Temperature range for realistic values
-min_temperature = 18.0
-max_temperature = 26.0
+```
+┌─────────────────────────────┐
+│   Example or Binary         │
+│                             │
+│  let sim =                  │
+│    ThermometerSimulator::   │
+│      spawn(config)?;        │
+│                             │
+│  // Simulator sends UDP     │
+│  // packets in background   │
+│                             │
+│  // Use ThermometerRemote   │
+│  // to receive data         │
+│                             │
+│  drop(sim); // Auto cleanup │
+└─────────────────────────────┘
 ```
 
 ---
 
-## 5.2 Add Dependencies
+## 5.1 Update Simulator Module
 
-**File:** `Cargo.toml`
+**File:** `src/simulators.rs`
 
-Add these dependencies if not already present:
+```rust
+pub mod outlet;
+pub mod thermometer;
+
+pub use outlet::{OutletSimulator, OutletSimulatorConfig};
+pub use thermometer::{ThermometerSimulator, ThermometerSimulatorConfig, TemperaturePattern};
+```
+
+---
+
+## 5.2 Create Thermometer Simulator Configuration
+
+**File:** `src/simulators/thermometer.rs`
+
+```rust
+use crate::protocols::thermometer::TemperatureData;
+use std::io;
+use std::net::UdpSocket;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
+
+/// Temperature generation pattern
+#[derive(Debug, Clone, Copy)]
+pub enum TemperaturePattern {
+    /// Random walk within range
+    RandomWalk {
+        min: f32,
+        max: f32,
+        step: f32,
+    },
+    /// Sine wave pattern
+    SineWave {
+        center: f32,
+        amplitude: f32,
+        period_secs: f32,
+    },
+    /// Fixed constant value
+    Constant(f32),
+}
+
+impl Default for TemperaturePattern {
+    fn default() -> Self {
+        TemperaturePattern::RandomWalk {
+            min: 18.0,
+            max: 26.0,
+            step: 0.5,
+        }
+    }
+}
+
+/// Configuration for the thermometer simulator
+#[derive(Debug, Clone)]
+pub struct ThermometerSimulatorConfig {
+    /// Target UDP address to send readings to (e.g., "127.0.0.1:9001")
+    pub target_addr: String,
+    /// How often to send readings
+    pub send_interval: Duration,
+    /// Temperature generation pattern
+    pub pattern: TemperaturePattern,
+    /// Initial temperature (optional, pattern-specific default used if None)
+    pub initial_temp: Option<f32>,
+}
+
+impl ThermometerSimulatorConfig {
+    pub fn new(
+        target_addr: impl Into<String>,
+        send_interval: Duration,
+    ) -> Self {
+        Self {
+            target_addr: target_addr.into(),
+            send_interval,
+            pattern: TemperaturePattern::default(),
+            initial_temp: None,
+        }
+    }
+
+    pub fn with_pattern(mut self, pattern: TemperaturePattern) -> Self {
+        self.pattern = pattern;
+        self
+    }
+
+    pub fn with_initial_temp(mut self, temp: f32) -> Self {
+        self.initial_temp = Some(temp);
+        self
+    }
+}
+```
+
+---
+
+## 5.3 Implement Temperature Generator
+
+```rust
+/// Temperature value generator
+struct TemperatureGenerator {
+    pattern: TemperaturePattern,
+    current: f32,
+    iteration: u64,
+}
+
+impl TemperatureGenerator {
+    fn new(pattern: TemperaturePattern, initial: Option<f32>) -> Self {
+        let current = initial.unwrap_or_else(|| match pattern {
+            TemperaturePattern::RandomWalk { min, max, .. } => (min + max) / 2.0,
+            TemperaturePattern::SineWave { center, .. } => center,
+            TemperaturePattern::Constant(val) => val,
+        });
+
+        Self {
+            pattern,
+            current,
+            iteration: 0,
+        }
+    }
+
+    fn next(&mut self) -> f32 {
+        self.iteration += 1;
+
+        match self.pattern {
+            TemperaturePattern::RandomWalk { min, max, step } => {
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                let change = rng.gen_range(-step..=step);
+                self.current = (self.current + change).clamp(min, max);
+                self.current
+            }
+            TemperaturePattern::SineWave {
+                center,
+                amplitude,
+                period_secs,
+            } => {
+                let t = self.iteration as f32 / period_secs;
+                center + amplitude * (t * 2.0 * std::f32::consts::PI).sin()
+            }
+            TemperaturePattern::Constant(val) => val,
+        }
+    }
+}
+```
+
+---
+
+## 5.4 Implement Thermometer Simulator with Handle
+
+```rust
+/// Handle to a running thermometer simulator
+/// When dropped, the simulator is automatically stopped
+pub struct ThermometerSimulator {
+    sender_thread: Option<JoinHandle<()>>,
+    shutdown: Arc<AtomicBool>,
+}
+
+impl ThermometerSimulator {
+    /// Spawn a new thermometer simulator
+    ///
+    /// Returns a handle to the simulator that will automatically
+    /// clean up when dropped.
+    pub fn spawn(config: ThermometerSimulatorConfig) -> io::Result<Self> {
+        let socket = UdpSocket::bind("0.0.0.0:0")?;
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let shutdown_clone = Arc::clone(&shutdown);
+
+        let sender_thread = thread::spawn(move || {
+            Self::run_sender(socket, config, shutdown_clone);
+        });
+
+        Ok(Self {
+            sender_thread: Some(sender_thread),
+            shutdown,
+        })
+    }
+
+    /// Run the UDP sender loop
+    fn run_sender(
+        socket: UdpSocket,
+        config: ThermometerSimulatorConfig,
+        shutdown: Arc<AtomicBool>,
+    ) {
+        let mut generator = TemperatureGenerator::new(
+            config.pattern,
+            config.initial_temp,
+        );
+
+        let mut packet_count = 0u64;
+
+        while !shutdown.load(Ordering::Relaxed) {
+            // Generate next temperature
+            let temp = generator.next();
+
+            // Create temperature reading
+            let reading = TemperatureData::new(temp);
+            let buf = reading.to_bytes();
+
+            // Send UDP packet
+            match socket.send_to(&buf, &config.target_addr) {
+                Ok(_) => {
+                    packet_count += 1;
+                }
+                Err(e) => {
+                    eprintln!("[Thermometer Simulator] Failed to send: {}", e);
+                }
+            }
+
+            // Wait before next reading
+            thread::sleep(config.send_interval);
+        }
+    }
+
+    /// Gracefully stop the simulator
+    pub fn stop(&self) {
+        self.shutdown.store(true, Ordering::Relaxed);
+    }
+}
+
+impl Drop for ThermometerSimulator {
+    fn drop(&mut self) {
+        // Signal shutdown
+        self.shutdown.store(true, Ordering::Relaxed);
+
+        // Wait for thread to finish
+        if let Some(handle) = self.sender_thread.take() {
+            let _ = handle.join();
+        }
+    }
+}
+```
+
+---
+
+## 5.5 Add Dependencies
+
+If not already in `Cargo.toml`, add:
 
 ```toml
 [dependencies]
 rand = "0.8"
-serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
 ```
 
 ---
 
-## 5.3 Create Binary File
+## 5.6 Create Example Using Simulator
+
+**File:** `examples/thermometer_simulator_usage.rs`
+
+```rust
+use smart_home::simulators::{
+    ThermometerSimulator, ThermometerSimulatorConfig, TemperaturePattern
+};
+use smart_home::smart_devices::thermometr_remote::ThermometerRemote;
+use smart_home::smart_devices::TemperatureSensor;
+use std::thread;
+use std::time::Duration;
+
+fn main() {
+    println!("╔════════════════════════════════════════════╗");
+    println!("║  Thermometer Simulator Library Example    ║");
+    println!("╚════════════════════════════════════════════╝\n");
+
+    // Create thermometer receiver first
+    let receiver = ThermometerRemote::new(
+        "Test Thermometer".to_string(),
+        "127.0.0.1:19999".to_string(),
+    ).expect("Failed to create receiver");
+
+    println!("✓ Thermometer receiver listening on 127.0.0.1:19999");
+
+    // Spawn thermometer simulator with random walk pattern
+    let pattern = TemperaturePattern::RandomWalk {
+        min: 20.0,
+        max: 25.0,
+        step: 0.3,
+    };
+
+    let config = ThermometerSimulatorConfig::new(
+        "127.0.0.1:19999",
+        Duration::from_millis(500),
+    )
+    .with_pattern(pattern)
+    .with_initial_temp(22.5);
+
+    let simulator = ThermometerSimulator::spawn(config)
+        .expect("Failed to spawn simulator");
+
+    println!("✓ Thermometer simulator started\n");
+    println!("Reading temperatures (every 1 second for 10 seconds):\n");
+
+    // Read temperature 10 times
+    for i in 1..=10 {
+        thread::sleep(Duration::from_secs(1));
+        let temp = receiver.current_temperature();
+        println!("  Reading #{:2}: {:.2}°C", i, temp);
+    }
+
+    println!("\n✅ Test completed!");
+    println!("\nSimulator will be automatically stopped when dropped.");
+
+    // Explicitly stop (optional, Drop will do this anyway)
+    simulator.stop();
+}
+```
+
+---
+
+## 5.7 Create Example with Multiple Patterns
+
+**File:** `examples/thermometer_patterns.rs`
+
+```rust
+use smart_home::simulators::{
+    ThermometerSimulator, ThermometerSimulatorConfig, TemperaturePattern
+};
+use smart_home::smart_devices::thermometr_remote::ThermometerRemote;
+use smart_home::smart_devices::TemperatureSensor;
+use std::thread;
+use std::time::Duration;
+
+fn main() {
+    println!("╔════════════════════════════════════════════╗");
+    println!("║   Thermometer Pattern Examples             ║");
+    println!("╚════════════════════════════════════════════╝\n");
+
+    // Example 1: Random Walk
+    println!("1. Random Walk Pattern (20-25°C)");
+    test_pattern(
+        "127.0.0.1:20001",
+        TemperaturePattern::RandomWalk {
+            min: 20.0,
+            max: 25.0,
+            step: 0.5,
+        },
+    );
+
+    thread::sleep(Duration::from_secs(1));
+
+    // Example 2: Sine Wave
+    println!("\n2. Sine Wave Pattern (center: 22°C, amplitude: 3°C)");
+    test_pattern(
+        "127.0.0.1:20002",
+        TemperaturePattern::SineWave {
+            center: 22.0,
+            amplitude: 3.0,
+            period_secs: 10.0,
+        },
+    );
+
+    thread::sleep(Duration::from_secs(1));
+
+    // Example 3: Constant
+    println!("\n3. Constant Temperature (23.5°C)");
+    test_pattern(
+        "127.0.0.1:20003",
+        TemperaturePattern::Constant(23.5),
+    );
+
+    println!("\n✅ All patterns tested!");
+}
+
+fn test_pattern(addr: &str, pattern: TemperaturePattern) {
+    let receiver = ThermometerRemote::new(
+        "Test".to_string(),
+        addr.to_string(),
+    ).expect("Failed to create receiver");
+
+    let config = ThermometerSimulatorConfig::new(addr, Duration::from_millis(200))
+        .with_pattern(pattern);
+
+    let _simulator = ThermometerSimulator::spawn(config)
+        .expect("Failed to spawn simulator");
+
+    thread::sleep(Duration::from_millis(300));
+
+    print!("   Readings: ");
+    for _ in 0..5 {
+        thread::sleep(Duration::from_millis(300));
+        let temp = receiver.current_temperature();
+        print!("{:.2}°C ", temp);
+    }
+    println!();
+}
+```
+
+---
+
+## 5.8 Create Binary Wrapper (Optional)
 
 **File:** `src/bin/thermometer_simulator.rs`
 
 ```rust
-use smart_home::protocol::thermometer::TemperatureReading;
-use std::net::UdpSocket;
-use std::thread;
+use smart_home::simulators::{
+    ThermometerSimulator, ThermometerSimulatorConfig, TemperaturePattern
+};
+use std::io::{self, Write};
 use std::time::Duration;
-use rand::Rng;
-use serde::Deserialize;
-
-#[derive(Deserialize, Debug)]
-struct ThermometerConfig {
-    target_address: String,
-    send_interval_ms: u64,
-    min_temperature: f32,
-    max_temperature: f32,
-}
-
-fn read_config(path: &str) -> Result<ThermometerConfig, Box<dyn std::error::Error>> {
-    let content = std::fs::read_to_string(path)?;
-    let config: ThermometerConfig = toml::from_str(&content)?;
-    Ok(config)
-}
 
 fn main() {
     // Parse command-line arguments
     let args: Vec<String> = std::env::args().collect();
-    let config_path = if args.len() > 1 {
-        &args[1]
-    } else {
-        "thermometer_config.toml"
-    };
-
-    // Read configuration
-    let config = read_config(config_path).unwrap_or_else(|e| {
-        eprintln!("Failed to read config file '{}': {}", config_path, e);
-        eprintln!("\nExpected TOML format:");
-        eprintln!("[thermometer]");
-        eprintln!("target_address = \"127.0.0.1:9001\"");
-        eprintln!("send_interval_ms = 1000");
-        eprintln!("min_temperature = 18.0");
-        eprintln!("max_temperature = 26.0");
-        std::process::exit(1);
-    });
-
-    // Validate configuration
-    if config.min_temperature >= config.max_temperature {
-        eprintln!("Error: min_temperature must be less than max_temperature");
+    if args.len() < 3 {
+        eprintln!("Usage: {} <target_address> <interval_ms> [min_temp] [max_temp]", args[0]);
+        eprintln!("Example: {} 127.0.0.1:9001 1000 18.0 26.0", args[0]);
         std::process::exit(1);
     }
 
-    // Create UDP socket
-    let socket = UdpSocket::bind("0.0.0.0:0").unwrap_or_else(|e| {
-        eprintln!("Failed to create UDP socket: {}", e);
-        std::process::exit(1);
-    });
+    let target_addr = &args[1];
+    let interval_ms: u64 = args[2]
+        .parse()
+        .expect("Invalid interval_ms argument");
 
-    // Print startup banner
-    print_banner(&config);
+    let pattern = if args.len() >= 5 {
+        let min: f32 = args[3].parse().expect("Invalid min_temp");
+        let max: f32 = args[4].parse().expect("Invalid max_temp");
+        TemperaturePattern::RandomWalk {
+            min,
+            max,
+            step: 0.5,
+        }
+    } else {
+        TemperaturePattern::default()
+    };
 
-    // Run simulation loop
-    run_simulation(socket, config);
-}
+    // Create and spawn simulator
+    let config = ThermometerSimulatorConfig::new(
+        target_addr,
+        Duration::from_millis(interval_ms),
+    ).with_pattern(pattern);
 
-fn print_banner(config: &ThermometerConfig) {
+    let simulator = ThermometerSimulator::spawn(config)
+        .expect("Failed to start simulator");
+
     println!("╔════════════════════════════════════════════╗");
     println!("║  Smart Thermometer Simulator (Binary UDP) ║");
     println!("╚════════════════════════════════════════════╝");
-    println!("Target address: {}", config.target_address);
-    println!("Send interval: {}ms", config.send_interval_ms);
-    println!("Temperature range: {:.1}°C - {:.1}°C\n",
-             config.min_temperature, config.max_temperature);
-}
-
-fn run_simulation(socket: UdpSocket, config: ThermometerConfig) {
-    let mut rng = rand::thread_rng();
-
-    // Start with random temperature in range
-    let mut current_temp = rng.gen_range(
-        config.min_temperature..config.max_temperature
-    );
-
-    let mut packet_count = 0u64;
-
-    loop {
-        // Generate realistic temperature change (random walk)
-        let change = rng.gen_range(-0.5..0.5);
-        current_temp = (current_temp + change)
-            .max(config.min_temperature)
-            .min(config.max_temperature);
-
-        // Create temperature reading
-        let reading = TemperatureReading::new(current_temp);
-        let buf = reading.to_bytes();
-
-        // Send UDP packet
-        match socket.send_to(&buf, &config.target_address) {
-            Ok(_) => {
-                packet_count += 1;
-                println!("[{}] Packet #{}: {:.2}°C (timestamp: {})",
-                         get_timestamp_str(),
-                         packet_count,
-                         reading.temperature,
-                         reading.timestamp);
-            }
-            Err(e) => {
-                eprintln!("[{}] Failed to send: {}",
-                         get_timestamp_str(), e);
-            }
-        }
-
-        // Wait before next reading
-        thread::sleep(Duration::from_millis(config.send_interval_ms));
+    println!("Target address: {}", target_addr);
+    println!("Send interval: {}ms", interval_ms);
+    if let TemperaturePattern::RandomWalk { min, max, .. } = pattern {
+        println!("Temperature range: {:.1}°C - {:.1}°C", min, max);
     }
+    println!("\nPress Enter to stop...\n");
+
+    // Keep running until Enter is pressed
+    let stdin = io::stdin();
+    let mut line = String::new();
+    let _ = stdin.read_line(&mut line);
+
+    println!("\nShutting down...");
+    simulator.stop();
 }
-
-fn get_timestamp_str() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    now.to_string()
-}
 ```
 
 ---
 
-## 5.4 Create Example Configuration Files
-
-Create different configs for different scenarios:
-
-**File:** `thermometer_living_room.toml`
-```toml
-[thermometer]
-target_address = "127.0.0.1:9001"
-send_interval_ms = 1000
-min_temperature = 20.0
-max_temperature = 24.0
-```
-
-**File:** `thermometer_bedroom.toml`
-```toml
-[thermometer]
-target_address = "127.0.0.1:9002"
-send_interval_ms = 1500
-min_temperature = 18.0
-max_temperature = 22.0
-```
-
-**File:** `thermometer_kitchen.toml`
-```toml
-[thermometer]
-target_address = "127.0.0.1:9003"
-send_interval_ms = 2000
-min_temperature = 22.0
-max_temperature = 28.0
-```
-
----
-
-## 5.5 Build and Test
-
-1. **Build the simulator:**
-   ```bash
-   cargo build --bin thermometer_simulator
-   ```
-
-2. **Create a test config:**
-   ```bash
-   cat > test_thermometer.toml << EOF
-   [thermometer]
-   target_address = "127.0.0.1:9001"
-   send_interval_ms = 1000
-   min_temperature = 18.0
-   max_temperature = 26.0
-   EOF
-   ```
-
-3. **Run the simulator:**
-   ```bash
-   cargo run --bin thermometer_simulator test_thermometer.toml
-   ```
-
-   You should see:
-   ```
-   ╔════════════════════════════════════════════╗
-   ║  Smart Thermometer Simulator (Binary UDP) ║
-   ╚════════════════════════════════════════════╝
-   Target address: 127.0.0.1:9001
-   Send interval: 1000ms
-   Temperature range: 18.0°C - 26.0°C
-
-   [1699876543] Packet #1: 22.34°C (timestamp: 1699876543)
-   [1699876544] Packet #2: 22.67°C (timestamp: 1699876544)
-   [1699876545] Packet #3: 22.45°C (timestamp: 1699876545)
-   ...
-   ```
-
----
-
-## 5.6 Create Test Receiver
-
-Create a test to verify the thermometer receives data:
-
-**File:** `examples/test_thermometer_simulator.rs`
+## 5.9 Add Tests
 
 ```rust
-use smart_home::smart_devices::Thermometer;
-use std::thread;
-use std::time::Duration;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::smart_devices::thermometr_remote::ThermometerRemote;
+    use crate::smart_devices::TemperatureSensor;
+    use std::thread;
+    use std::time::Duration;
 
-fn main() {
-    println!("Testing thermometer simulator...\n");
+    #[test]
+    fn test_simulator_spawn() {
+        let config = ThermometerSimulatorConfig::new(
+            "127.0.0.1:29001",
+            Duration::from_millis(100),
+        );
 
-    println!("Make sure to start the thermometer simulator first:");
-    println!("  cargo run --bin thermometer_simulator test_thermometer.toml\n");
-
-    // Create remote thermometer
-    let thermometer = Thermometer::new_remote(
-        "Test Thermometer".to_string(),
-        "127.0.0.1:9001".to_string()
-    ).expect("Failed to create remote thermometer");
-
-    println!("Thermometer created, listening for UDP packets...\n");
-
-    // Read temperature every 2 seconds for 10 iterations
-    for i in 1..=10 {
-        thread::sleep(Duration::from_secs(2));
-        let temp = thermometer.current_temperature();
-        println!("Reading #{}: {:.2}°C", i, temp);
+        let simulator = ThermometerSimulator::spawn(config);
+        assert!(simulator.is_ok());
     }
 
-    println!("\n✅ Test completed!");
-}
-```
+    #[test]
+    fn test_simulator_sends_data() {
+        let addr = "127.0.0.1:29002";
 
----
+        let receiver = ThermometerRemote::new(
+            "Test".to_string(),
+            addr.to_string(),
+        ).unwrap();
 
-## 5.7 Run Integration Test
+        let config = ThermometerSimulatorConfig::new(
+            addr,
+            Duration::from_millis(100),
+        ).with_initial_temp(21.5);
 
-**Terminal 1** - Start simulator:
-```bash
-cargo run --bin thermometer_simulator test_thermometer.toml
-```
+        let _simulator = ThermometerSimulator::spawn(config).unwrap();
 
-**Terminal 2** - Run test receiver:
-```bash
-cargo run --example test_thermometer_simulator
-```
+        // Wait for data
+        thread::sleep(Duration::from_millis(300));
 
-Expected output:
-
-**Simulator (Terminal 1):**
-```
-╔════════════════════════════════════════════╗
-║  Smart Thermometer Simulator (Binary UDP) ║
-╚════════════════════════════════════════════╝
-Target address: 127.0.0.1:9001
-Send interval: 1000ms
-Temperature range: 18.0°C - 26.0°C
-
-[1699876543] Packet #1: 22.34°C (timestamp: 1699876543)
-[1699876544] Packet #2: 22.67°C (timestamp: 1699876544)
-[1699876545] Packet #3: 22.45°C (timestamp: 1699876545)
-...
-```
-
-**Test Client (Terminal 2):**
-```
-Testing thermometer simulator...
-
-Make sure to start the thermometer simulator first:
-  cargo run --bin thermometer_simulator test_thermometer.toml
-
-Thermometer created, listening for UDP packets...
-
-  [UDP] Received temperature: 22.34°C at timestamp 1699876543
-Reading #1: 22.34°C
-  [UDP] Received temperature: 22.89°C at timestamp 1699876545
-Reading #2: 22.89°C
-  [UDP] Received temperature: 22.56°C at timestamp 1699876547
-Reading #3: 22.56°C
-...
-
-✅ Test completed!
-```
-
----
-
-## 5.8 Add Enhanced Features (Optional)
-
-### 5.8.1 Add Graceful Shutdown
-
-```rust
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-
-static RUNNING: AtomicBool = AtomicBool::new(true);
-
-fn main() {
-    // ... existing setup ...
-
-    // Set up Ctrl+C handler
-    ctrlc::set_handler(|| {
-        println!("\n\nReceived shutdown signal...");
-        RUNNING.store(false, Ordering::SeqCst);
-    }).expect("Error setting Ctrl+C handler");
-
-    run_simulation(socket, config);
-}
-
-fn run_simulation(socket: UdpSocket, config: ThermometerConfig) {
-    // ... existing setup ...
-
-    while RUNNING.load(Ordering::SeqCst) {
-        // ... send temperature ...
-        thread::sleep(Duration::from_millis(config.send_interval_ms));
+        let temp = receiver.current_temperature();
+        // Should have received data (not default 0.0)
+        assert!(temp > 0.0);
     }
 
-    println!("Simulator shut down gracefully");
-}
-```
+    #[test]
+    fn test_constant_pattern() {
+        let addr = "127.0.0.1:29003";
 
-### 5.8.2 Add Temperature Patterns
+        let receiver = ThermometerRemote::new(
+            "Test".to_string(),
+            addr.to_string(),
+        ).unwrap();
 
-```rust
-#[derive(Deserialize, Debug)]
-struct ThermometerConfig {
-    target_address: String,
-    send_interval_ms: u64,
-    min_temperature: f32,
-    max_temperature: f32,
-    #[serde(default)]
-    pattern: Option<String>,  // "random_walk", "sine", "sawtooth"
-}
+        let pattern = TemperaturePattern::Constant(25.0);
+        let config = ThermometerSimulatorConfig::new(
+            addr,
+            Duration::from_millis(100),
+        ).with_pattern(pattern);
 
-fn generate_temperature(
-    config: &ThermometerConfig,
-    current: &mut f32,
-    iteration: u64
-) -> f32 {
-    match config.pattern.as_deref() {
-        Some("sine") => {
-            let t = iteration as f32 * 0.1;
-            let mid = (config.min_temperature + config.max_temperature) / 2.0;
-            let amp = (config.max_temperature - config.min_temperature) / 2.0;
-            mid + amp * t.sin()
+        let _simulator = ThermometerSimulator::spawn(config).unwrap();
+
+        thread::sleep(Duration::from_millis(300));
+
+        let temp = receiver.current_temperature();
+        assert!((temp - 25.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_random_walk_pattern() {
+        let addr = "127.0.0.1:29004";
+
+        let receiver = ThermometerRemote::new(
+            "Test".to_string(),
+            addr.to_string(),
+        ).unwrap();
+
+        let pattern = TemperaturePattern::RandomWalk {
+            min: 20.0,
+            max: 25.0,
+            step: 0.5,
+        };
+
+        let config = ThermometerSimulatorConfig::new(
+            addr,
+            Duration::from_millis(50),
+        ).with_pattern(pattern);
+
+        let _simulator = ThermometerSimulator::spawn(config).unwrap();
+
+        thread::sleep(Duration::from_millis(300));
+
+        // Read multiple values
+        for _ in 0..5 {
+            thread::sleep(Duration::from_millis(100));
+            let temp = receiver.current_temperature();
+            assert!(temp >= 20.0 && temp <= 25.0);
         }
-        Some("sawtooth") => {
-            let range = config.max_temperature - config.min_temperature;
-            config.min_temperature + ((iteration as f32 * 0.1) % range)
+    }
+
+    #[test]
+    fn test_simulator_stop() {
+        let config = ThermometerSimulatorConfig::new(
+            "127.0.0.1:29005",
+            Duration::from_millis(100),
+        );
+
+        let simulator = ThermometerSimulator::spawn(config).unwrap();
+        simulator.stop();
+
+        thread::sleep(Duration::from_millis(200));
+        // Should not panic
+    }
+
+    #[test]
+    fn test_simulator_cleanup() {
+        let config = ThermometerSimulatorConfig::new(
+            "127.0.0.1:29006",
+            Duration::from_millis(100),
+        );
+
+        {
+            let _simulator = ThermometerSimulator::spawn(config).unwrap();
+            // Dropped here
         }
-        _ => {
-            // Default: random walk
-            let mut rng = rand::thread_rng();
-            let change = rng.gen_range(-0.5..0.5);
-            *current = (*current + change)
-                .max(config.min_temperature)
-                .min(config.max_temperature);
-            *current
-        }
+
+        thread::sleep(Duration::from_millis(200));
+        // Should not panic
     }
 }
 ```
 
 ---
 
-## 5.9 Run Multiple Simulators
+## 5.10 Run Tests and Examples
 
-You can run multiple thermometer simulators:
+1. **Build and test:**
+   ```bash
+   cargo test thermometer_simulator
+   ```
 
-```bash
-# Terminal 1 - Living Room (fast updates)
-cargo run --bin thermometer_simulator thermometer_living_room.toml
+2. **Run the basic example:**
+   ```bash
+   cargo run --example thermometer_simulator_usage
+   ```
 
-# Terminal 2 - Bedroom (medium updates)
-cargo run --bin thermometer_simulator thermometer_bedroom.toml
+3. **Run the patterns example:**
+   ```bash
+   cargo run --example thermometer_patterns
+   ```
 
-# Terminal 3 - Kitchen (slow updates, warmer)
-cargo run --bin thermometer_simulator thermometer_kitchen.toml
-```
+4. **Run as binary (optional):**
+   ```bash
+   cargo run --bin thermometer_simulator 127.0.0.1:9001 1000 20.0 25.0
+   ```
 
 ---
 
 ## Summary
 
-✅ Created `thermometer_simulator` binary in `src/bin/`
-✅ Implemented TOML configuration file support
-✅ Generated realistic temperature values with random walk
-✅ Sent binary UDP packets with temperature readings
-✅ Added timestamp to each reading
-✅ Tested with remote thermometer receiver
-✅ Supports multiple concurrent simulators
-✅ Optional: Added graceful shutdown and temperature patterns
+✅ Created `ThermometerSimulator` library in `src/simulators/thermometer.rs`
+✅ Simple spawn API: `ThermometerSimulator::spawn(config)`
+✅ Returns handle with automatic cleanup via `Drop`
+✅ Supports multiple temperature patterns (random walk, sine, constant)
+✅ Configurable send interval and initial temperature
+✅ Graceful shutdown with `stop()` method
+✅ Can be used from examples, binaries, or tests
+✅ Optional binary wrapper for standalone use
+✅ Comprehensive test coverage
+
+**Advantages over binary-only approach:**
+- Easy to use in integration tests
+- No need to manage separate processes
+- Automatic cleanup when handle is dropped
+- Can spawn multiple simulators programmatically
+- Better for CI/CD pipelines
+- Flexible pattern configuration
 
 **Next Step:** [Step 6: Create Example Application](step-6-example-app.md)

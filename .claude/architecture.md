@@ -58,7 +58,7 @@ Define communication protocols for each device type:
 **Rust Protocol Types:**
 
 ```rust
-// File: src/protocol/outlet.rs
+// File: src/protocol/outlet_mock
 
 use serde::{Deserialize, Serialize};
 
@@ -124,7 +124,7 @@ Server → Client (8 bytes):
 **Rust Types:**
 
 ```rust
-// File: src/protocol/thermometer.rs
+// File: src/protocol/thermometer_mock
 
 #[repr(C)]
 pub struct TemperatureReading {

@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::fmt::Display;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SmartHome {
     name: String,
     rooms: HashMap<String, SmartRoom>,
@@ -59,7 +59,7 @@ impl Information for SmartHome {
     }
 
     fn info(&self) -> String {
-        let sorted_rooms: BTreeMap<String, SmartRoom> = self.clone().rooms.into_iter().collect();
+        let sorted_rooms: BTreeMap<&String, &SmartRoom> = self.rooms.iter().collect();
         let enumerated_rooms: Vec<String> = sorted_rooms
             .iter()
             .enumerate()
@@ -197,7 +197,8 @@ macro_rules! create_home {
 #[cfg(test)]
 mod tests {
     use crate::create_room;
-    use crate::smart_devices::{Celsius, Device, OutletDevice, OutletState, Watt};
+    use crate::smart_devices::types::OutletState;
+    use crate::smart_devices::{Celsius, Device, OutletDevice, Watt};
     use crate::smart_home::{AccessRoom, DeviceAccessError, RoomAccessError, SmartHome};
     use crate::smart_room::SmartRoom;
     use crate::traits::Information;
@@ -632,12 +633,18 @@ Smart Room: Living Room:
                 .get_device("Attached Outlet")
                 .unwrap();
             let outlet = match device {
-                Device::OutletType(o) => o,
+                Device::OutletTypeMock(o) => o,
                 _ => panic!("Expected OutletType"),
             };
-            assert_eq!(outlet.state(), OutletState::On);
-            outlet.switch();
-            assert_eq!(outlet.state(), OutletState::Off);
+            assert_eq!(
+                outlet.state().expect("Failed to get outlet state"),
+                OutletState::On
+            );
+            outlet.switch().expect("Failed to switch outlet state");
+            assert_eq!(
+                outlet.state().expect("Failed to get outlet state"),
+                OutletState::Off
+            );
         }
         assert_eq!(
             home.view_room("Bedroom")
@@ -717,12 +724,18 @@ Smart Room: Living Room:
             let kitchen_room = home.get_room("Kitchen Room").unwrap();
             let device = kitchen_room.get_device("Teapot Outlet").unwrap();
             let outlet = match device {
-                Device::OutletType(outlet) => outlet,
+                Device::OutletTypeMock(outlet) => outlet,
                 _ => panic!("Expected OutletType"),
             };
-            assert_eq!(outlet.state(), OutletState::Off);
-            outlet.switch();
-            assert_eq!(outlet.state(), OutletState::On);
+            assert_eq!(
+                outlet.state().expect("Failed to get outlet state"),
+                OutletState::Off
+            );
+            outlet.switch().expect("Failed to switch outlet state");
+            assert_eq!(
+                outlet.state().expect("Failed to get outlet state"),
+                OutletState::On
+            );
         }
 
         let expected = r#"Smart Home: My Smart Home:
@@ -756,5 +769,585 @@ Smart Room: Living Room:
   [2]: Smart Outlet: PC - Current State: On, Power Usage: 250 Watt"#;
 
         assert_eq!(home.info(), expected);
+    }
+
+    // Tests with remote devices and simulators
+    #[test]
+    fn smart_home_with_remote_outlet_test() {
+        use crate::simulators::outlet::{OutletSimulator, OutletSimulatorConfig};
+        use crate::smart_devices::outlet_remote::OutletRemote;
+        use std::thread;
+        use std::time::Duration;
+
+        // Spawn outlet simulator
+        let config = OutletSimulatorConfig::new("127.0.0.1:0", 150 as Watt);
+        let simulator = OutletSimulator::spawn(config).expect("Failed to spawn simulator");
+        let addr = simulator.address().to_string();
+
+        thread::sleep(Duration::from_millis(100));
+
+        // Create remote outlet
+        let remote_outlet = OutletRemote::new("Living Room Lamp".to_string(), addr)
+            .expect("Failed to create remote outlet");
+
+        // Create room with remote device
+        let living_room = create_room!(
+            "Living Room",
+            "Living Room Lamp" => Device::from(remote_outlet),
+        );
+
+        // Create home with the room
+        let home = create_home!(
+            "My Smart Home",
+            {"Living Room", living_room},
+        );
+
+        assert_eq!(home.rooms.len(), 1);
+        assert_eq!(home.view_room("Living Room").unwrap().name(), "Living Room");
+
+        // Access device through home
+        let device = home.device("Living Room", "Living Room Lamp").unwrap();
+        match device {
+            Device::OutletTypeRemote(outlet) => {
+                assert_eq!(outlet.state().unwrap(), OutletState::Off);
+                assert_eq!(outlet.power_usage().unwrap(), 0);
+            }
+            _ => panic!("Expected OutletTypeRemote"),
+        }
+    }
+
+    #[test]
+    fn smart_home_with_multiple_remote_rooms_test() {
+        use crate::simulators::outlet::{OutletSimulator, OutletSimulatorConfig};
+        use crate::simulators::thermometer::{
+            TemperaturePattern, ThermometerSimulator, ThermometerSimulatorConfig,
+        };
+        use crate::smart_devices::outlet_remote::OutletRemote;
+        use crate::smart_devices::thermometer_remote::ThermometerRemote;
+        use std::thread;
+        use std::time::Duration;
+
+        // Setup bedroom with remote outlet
+        let bedroom_config = OutletSimulatorConfig::new("127.0.0.1:0", 100 as Watt);
+        let bedroom_sim =
+            OutletSimulator::spawn(bedroom_config).expect("Failed to spawn bedroom simulator");
+        let bedroom_addr = bedroom_sim.address().to_string();
+
+        // Setup living room with remote outlet
+        let living_config = OutletSimulatorConfig::new("127.0.0.1:0", 200 as Watt);
+        let living_sim =
+            OutletSimulator::spawn(living_config).expect("Failed to spawn living room simulator");
+        let living_addr = living_sim.address().to_string();
+
+        // Setup kitchen with remote thermometer
+        let kitchen_thermo_addr = "127.0.0.1:50001".to_string();
+        let kitchen_thermo =
+            ThermometerRemote::new("Kitchen Sensor".to_string(), kitchen_thermo_addr.clone())
+                .expect("Failed to create kitchen thermometer");
+
+        thread::sleep(Duration::from_millis(100));
+
+        let kitchen_config = ThermometerSimulatorConfig::new(
+            "KitchenSim",
+            kitchen_thermo_addr,
+            Duration::from_secs(1),
+        )
+        .with_pattern(TemperaturePattern::Constant(20.0));
+
+        let _kitchen_sim =
+            ThermometerSimulator::spawn(kitchen_config).expect("Failed to spawn kitchen simulator");
+
+        // Create remote devices
+        let bedroom_lamp = OutletRemote::new("Bedroom Lamp".to_string(), bedroom_addr)
+            .expect("Failed to create bedroom lamp");
+        let living_lamp = OutletRemote::new("Living Lamp".to_string(), living_addr)
+            .expect("Failed to create living lamp");
+
+        // Create rooms
+        let bedroom = create_room!(
+            "Bedroom",
+            "Bedroom Lamp" => Device::from(bedroom_lamp),
+        );
+
+        let living_room = create_room!(
+            "Living Room",
+            "Living Lamp" => Device::from(living_lamp),
+        );
+
+        let kitchen = create_room!(
+            "Kitchen",
+            "Kitchen Sensor" => Device::from(kitchen_thermo),
+        );
+
+        // Create home
+        let home = create_home!(
+            "My Smart Home",
+            {"Bedroom", bedroom},
+            {"Living Room", living_room},
+            {"Kitchen", kitchen},
+        );
+
+        assert_eq!(home.rooms.len(), 3);
+
+        // Wait for thermometer update
+        thread::sleep(Duration::from_millis(1500));
+
+        // Verify all devices are accessible
+        assert!(home.device("Bedroom", "Bedroom Lamp").is_ok());
+        assert!(home.device("Living Room", "Living Lamp").is_ok());
+        assert!(home.device("Kitchen", "Kitchen Sensor").is_ok());
+    }
+
+    #[test]
+    fn smart_home_with_spawner_test() {
+        use crate::simulators::outlet::OutletSimulatorConfig;
+        use crate::simulators::spawner::DeviceSimulatorSpawner;
+        use crate::simulators::thermometer::{TemperaturePattern, ThermometerSimulatorConfig};
+        use crate::smart_devices::outlet_remote::OutletRemote;
+        use crate::smart_devices::thermometer_remote::ThermometerRemote;
+        use std::thread;
+        use std::time::Duration;
+
+        let mut spawner = DeviceSimulatorSpawner::default();
+
+        // Spawn bedroom outlet simulator
+        let bedroom_config = OutletSimulatorConfig::new("127.0.0.1:0", 100 as Watt);
+        let bedroom_addr = spawner
+            .spawn_outlet_simulator("BedroomOutlet".to_string(), bedroom_config)
+            .expect("Failed to spawn bedroom simulator");
+
+        // Spawn living room outlet simulator
+        let living_config = OutletSimulatorConfig::new("127.0.0.1:0", 150 as Watt);
+        let living_addr = spawner
+            .spawn_outlet_simulator("LivingOutlet".to_string(), living_config)
+            .expect("Failed to spawn living room simulator");
+
+        // Setup kitchen thermometer
+        let kitchen_addr = "127.0.0.1:50010".to_string();
+        let kitchen_thermo =
+            ThermometerRemote::new("Kitchen Temp".to_string(), kitchen_addr.clone())
+                .expect("Failed to create kitchen thermometer");
+
+        thread::sleep(Duration::from_millis(100));
+
+        let kitchen_config =
+            ThermometerSimulatorConfig::new("KitchenThermo", kitchen_addr, Duration::from_secs(1))
+                .with_pattern(TemperaturePattern::Constant(22.5));
+
+        spawner
+            .spawn_thermometer_simulator("KitchenThermo".to_string(), kitchen_config)
+            .expect("Failed to spawn kitchen thermometer");
+
+        // Create remote devices
+        let bedroom_outlet = OutletRemote::new("Bedroom Heater".to_string(), bedroom_addr)
+            .expect("Failed to create bedroom outlet");
+        let living_outlet = OutletRemote::new("Living Lamp".to_string(), living_addr)
+            .expect("Failed to create living outlet");
+
+        // Create rooms
+        let bedroom = create_room!(
+            "Bedroom",
+            "Bedroom Heater" => Device::from(bedroom_outlet),
+        );
+
+        let living_room = create_room!(
+            "Living Room",
+            "Living Lamp" => Device::from(living_outlet),
+        );
+
+        let kitchen = create_room!(
+            "Kitchen",
+            "Kitchen Temp" => Device::from(kitchen_thermo),
+        );
+
+        // Create home
+        let home = create_home!(
+            "Smart Home",
+            {"Bedroom", bedroom},
+            {"Living Room", living_room},
+            {"Kitchen", kitchen},
+        );
+
+        assert_eq!(home.rooms.len(), 3);
+
+        // Wait for thermometer update
+        thread::sleep(Duration::from_millis(1500));
+
+        // Verify devices work
+        let bedroom_device = home.device("Bedroom", "Bedroom Heater").unwrap();
+        match bedroom_device {
+            Device::OutletTypeRemote(outlet) => {
+                assert_eq!(outlet.state().unwrap(), OutletState::Off);
+            }
+            _ => panic!("Expected OutletTypeRemote"),
+        }
+
+        let kitchen_device = home.device("Kitchen", "Kitchen Temp").unwrap();
+        match kitchen_device {
+            Device::ThermometerTypeRemote(thermo) => {
+                use crate::smart_devices::TemperatureSensor;
+                let temp = thermo.current_temperature();
+                assert!((temp - 22.5).abs() < 0.1, "Expected ~22.5, got {}", temp);
+            }
+            _ => panic!("Expected ThermometerTypeRemote"),
+        }
+    }
+
+    #[test]
+    fn smart_home_control_remote_device_test() {
+        use crate::simulators::outlet::{OutletSimulator, OutletSimulatorConfig};
+        use crate::smart_devices::outlet_remote::OutletRemote;
+        use std::thread;
+        use std::time::Duration;
+
+        // Spawn simulator
+        let config = OutletSimulatorConfig::new("127.0.0.1:0", 200 as Watt);
+        let simulator = OutletSimulator::spawn(config).expect("Failed to spawn simulator");
+        let addr = simulator.address().to_string();
+
+        thread::sleep(Duration::from_millis(100));
+
+        let remote_outlet = OutletRemote::new("Smart Heater".to_string(), addr)
+            .expect("Failed to create remote outlet");
+
+        let bedroom = create_room!(
+            "Bedroom",
+            "Smart Heater" => Device::from(remote_outlet),
+        );
+
+        let mut home = create_home!(
+            "My Home",
+            {"Bedroom", bedroom},
+        );
+
+        // Get device and turn it on
+        {
+            let room = home.get_room("Bedroom").unwrap();
+            let device = room.get_device("Smart Heater").unwrap();
+            match device {
+                Device::OutletTypeRemote(outlet) => {
+                    outlet.turn_on().expect("Failed to turn on");
+                    thread::sleep(Duration::from_millis(50));
+                    assert_eq!(outlet.state().unwrap(), OutletState::On);
+                    assert_eq!(outlet.power_usage().unwrap(), 200);
+                }
+                _ => panic!("Expected OutletTypeRemote"),
+            }
+        }
+
+        // Verify state persists
+        let device = home.device("Bedroom", "Smart Heater").unwrap();
+        match device {
+            Device::OutletTypeRemote(outlet) => {
+                assert_eq!(outlet.state().unwrap(), OutletState::On);
+                assert_eq!(outlet.power_usage().unwrap(), 200);
+            }
+            _ => panic!("Expected OutletTypeRemote"),
+        }
+
+        // Turn off
+        {
+            let room = home.get_room("Bedroom").unwrap();
+            let device = room.get_device("Smart Heater").unwrap();
+            match device {
+                Device::OutletTypeRemote(outlet) => {
+                    outlet.turn_off().expect("Failed to turn off");
+                    thread::sleep(Duration::from_millis(50));
+                    assert_eq!(outlet.state().unwrap(), OutletState::Off);
+                    assert_eq!(outlet.power_usage().unwrap(), 0);
+                }
+                _ => panic!("Expected OutletTypeRemote"),
+            }
+        }
+    }
+
+    #[test]
+    fn smart_home_mixed_mock_and_remote_devices_test() {
+        use crate::simulators::outlet::{OutletSimulator, OutletSimulatorConfig};
+        use crate::smart_devices::outlet_remote::OutletRemote;
+        use std::thread;
+        use std::time::Duration;
+
+        // Spawn simulator for remote device
+        let config = OutletSimulatorConfig::new("127.0.0.1:0", 150 as Watt);
+        let simulator = OutletSimulator::spawn(config).expect("Failed to spawn simulator");
+        let addr = simulator.address().to_string();
+
+        thread::sleep(Duration::from_millis(100));
+
+        let remote_outlet = OutletRemote::new("Remote Heater".to_string(), addr)
+            .expect("Failed to create remote outlet");
+
+        // Create bedroom with mock devices
+        let bedroom = create_room!(
+            "Bedroom",
+            "Local Lamp" => Device::new_outlet("Local Lamp".to_string(), OutletState::On, 60 as Watt),
+            "Local Thermometer" => Device::new_thermometer("Local Thermometer".to_string(), 21.0 as Celsius),
+        );
+
+        // Create living room with remote device
+        let living_room = create_room!(
+            "Living Room",
+            "Remote Heater" => Device::from(remote_outlet),
+        );
+
+        // Create home with both rooms
+        let home = create_home!(
+            "Mixed Home",
+            {"Bedroom", bedroom},
+            {"Living Room", living_room},
+        );
+
+        assert_eq!(home.rooms.len(), 2);
+
+        // Verify mock device in bedroom
+        let local_lamp = home.device("Bedroom", "Local Lamp").unwrap();
+        match local_lamp {
+            Device::OutletTypeMock(outlet) => {
+                assert_eq!(outlet.state().unwrap(), OutletState::On);
+                assert_eq!(outlet.power_usage().unwrap(), 60);
+            }
+            _ => panic!("Expected OutletTypeMock"),
+        }
+
+        // Verify remote device in living room
+        let remote_heater = home.device("Living Room", "Remote Heater").unwrap();
+        match remote_heater {
+            Device::OutletTypeRemote(outlet) => {
+                assert_eq!(outlet.state().unwrap(), OutletState::Off);
+            }
+            _ => panic!("Expected OutletTypeRemote"),
+        }
+    }
+
+    #[test]
+    fn smart_home_add_room_with_remote_devices_test() {
+        use crate::simulators::outlet::{OutletSimulator, OutletSimulatorConfig};
+        use crate::smart_devices::outlet_remote::OutletRemote;
+        use std::thread;
+        use std::time::Duration;
+
+        let mut home = SmartHome::new("My Home".to_string(), HashMap::new());
+        assert_eq!(home.rooms.len(), 0);
+
+        // Spawn simulator
+        let config = OutletSimulatorConfig::new("127.0.0.1:0", 100 as Watt);
+        let simulator = OutletSimulator::spawn(config).expect("Failed to spawn simulator");
+        let addr = simulator.address().to_string();
+
+        thread::sleep(Duration::from_millis(100));
+
+        let remote_outlet = OutletRemote::new("Bedroom Lamp".to_string(), addr)
+            .expect("Failed to create remote outlet");
+
+        // Create and add room with remote device
+        let bedroom = create_room!(
+            "Bedroom",
+            "Bedroom Lamp" => Device::from(remote_outlet),
+        );
+
+        home.add_room(bedroom);
+        assert_eq!(home.rooms.len(), 1);
+
+        // Verify device is accessible
+        assert!(home.device("Bedroom", "Bedroom Lamp").is_ok());
+    }
+
+    #[test]
+    fn smart_home_remove_room_with_remote_devices_test() {
+        use crate::simulators::outlet::{OutletSimulator, OutletSimulatorConfig};
+        use crate::smart_devices::outlet_remote::OutletRemote;
+        use std::thread;
+        use std::time::Duration;
+
+        // Spawn simulator
+        let config = OutletSimulatorConfig::new("127.0.0.1:0", 100 as Watt);
+        let simulator = OutletSimulator::spawn(config).expect("Failed to spawn simulator");
+        let addr = simulator.address().to_string();
+
+        thread::sleep(Duration::from_millis(100));
+
+        let remote_outlet = OutletRemote::new("Office Lamp".to_string(), addr)
+            .expect("Failed to create remote outlet");
+
+        let office = create_room!(
+            "Office",
+            "Office Lamp" => Device::from(remote_outlet),
+        );
+
+        let mut home = create_home!(
+            "My Home",
+            {"Office", office},
+        );
+
+        assert_eq!(home.rooms.len(), 1);
+        assert!(home.device("Office", "Office Lamp").is_ok());
+
+        // Remove room
+        let removed = home.remove_room("Office");
+        assert!(removed.is_some());
+        assert_eq!(home.rooms.len(), 0);
+        assert!(home.view_room("Office").is_none());
+    }
+
+    #[test]
+    fn smart_home_full_integration_with_spawner_test() {
+        use crate::simulators::outlet::OutletSimulatorConfig;
+        use crate::simulators::spawner::DeviceSimulatorSpawner;
+        use crate::simulators::thermometer::{TemperaturePattern, ThermometerSimulatorConfig};
+        use crate::smart_devices::TemperatureSensor;
+        use crate::smart_devices::outlet_remote::OutletRemote;
+        use crate::smart_devices::thermometer_remote::ThermometerRemote;
+        use std::thread;
+        use std::time::Duration;
+
+        let mut spawner = DeviceSimulatorSpawner::default();
+
+        // Spawn multiple outlet simulators and collect addresses
+        let bedroom_config = OutletSimulatorConfig::new("127.0.0.1:0", 80 as Watt);
+        let bedroom_outlet_addr = spawner
+            .spawn_outlet_simulator("BedroomOutlet".to_string(), bedroom_config)
+            .unwrap();
+
+        let living_config = OutletSimulatorConfig::new("127.0.0.1:0", 120 as Watt);
+        let living_outlet_addr = spawner
+            .spawn_outlet_simulator("LivingOutlet".to_string(), living_config)
+            .unwrap();
+
+        let kitchen_config = OutletSimulatorConfig::new("127.0.0.1:0", 200 as Watt);
+        let kitchen_outlet_addr = spawner
+            .spawn_outlet_simulator("KitchenOutlet".to_string(), kitchen_config)
+            .unwrap();
+
+        // Setup thermometers
+        let bedroom_thermo_addr = "127.0.0.1:50020".to_string();
+        let living_thermo_addr = "127.0.0.1:50021".to_string();
+
+        let bedroom_thermo =
+            ThermometerRemote::new("Bedroom Temp".to_string(), bedroom_thermo_addr.clone())
+                .expect("Failed to create bedroom thermometer");
+        let living_thermo =
+            ThermometerRemote::new("Living Temp".to_string(), living_thermo_addr.clone())
+                .expect("Failed to create living thermometer");
+
+        thread::sleep(Duration::from_millis(100));
+
+        let bedroom_thermo_config = ThermometerSimulatorConfig::new(
+            "BedroomThermo",
+            bedroom_thermo_addr,
+            Duration::from_secs(1),
+        )
+        .with_pattern(TemperaturePattern::Constant(21.0));
+
+        spawner
+            .spawn_thermometer_simulator("BedroomThermo".to_string(), bedroom_thermo_config)
+            .unwrap();
+
+        let living_thermo_config = ThermometerSimulatorConfig::new(
+            "LivingThermo",
+            living_thermo_addr,
+            Duration::from_secs(1),
+        )
+        .with_pattern(TemperaturePattern::Constant(23.0));
+
+        spawner
+            .spawn_thermometer_simulator("LivingThermo".to_string(), living_thermo_config)
+            .unwrap();
+
+        // Create remote outlets
+        let bedroom_lamp = OutletRemote::new("Bedroom Lamp".to_string(), bedroom_outlet_addr)
+            .expect("Failed to create bedroom lamp");
+        let living_tv = OutletRemote::new("Living TV".to_string(), living_outlet_addr)
+            .expect("Failed to create living TV");
+        let kitchen_fridge = OutletRemote::new("Kitchen Fridge".to_string(), kitchen_outlet_addr)
+            .expect("Failed to create kitchen fridge");
+
+        // Create rooms with remote devices
+        let bedroom = create_room!(
+            "Bedroom",
+            "Bedroom Lamp" => Device::from(bedroom_lamp),
+            "Bedroom Temp" => Device::from(bedroom_thermo),
+        );
+
+        let living_room = create_room!(
+            "Living Room",
+            "Living TV" => Device::from(living_tv),
+            "Living Temp" => Device::from(living_thermo),
+        );
+
+        let kitchen = create_room!(
+            "Kitchen",
+            "Kitchen Fridge" => Device::from(kitchen_fridge),
+        );
+
+        // Create home
+        let mut home = create_home!(
+            "Full Smart Home",
+            {"Bedroom", bedroom},
+            {"Living Room", living_room},
+            {"Kitchen", kitchen},
+        );
+
+        assert_eq!(home.rooms.len(), 3);
+
+        // Wait for thermometer updates
+        thread::sleep(Duration::from_millis(1500));
+
+        // Test bedroom devices
+        let bedroom_lamp_device = home.device("Bedroom", "Bedroom Lamp").unwrap();
+        match bedroom_lamp_device {
+            Device::OutletTypeRemote(outlet) => {
+                assert_eq!(outlet.state().unwrap(), OutletState::Off);
+            }
+            _ => panic!("Expected OutletTypeRemote"),
+        }
+
+        let bedroom_temp_device = home.device("Bedroom", "Bedroom Temp").unwrap();
+        match bedroom_temp_device {
+            Device::ThermometerTypeRemote(thermo) => {
+                let temp = thermo.current_temperature();
+                assert!((temp - 21.0).abs() < 0.1, "Expected ~21.0, got {}", temp);
+            }
+            _ => panic!("Expected ThermometerTypeRemote"),
+        }
+
+        // Test living room devices
+        let living_tv_device = home.device("Living Room", "Living TV").unwrap();
+        match living_tv_device {
+            Device::OutletTypeRemote(outlet) => {
+                assert_eq!(outlet.state().unwrap(), OutletState::Off);
+            }
+            _ => panic!("Expected OutletTypeRemote"),
+        }
+
+        let living_temp_device = home.device("Living Room", "Living Temp").unwrap();
+        match living_temp_device {
+            Device::ThermometerTypeRemote(thermo) => {
+                let temp = thermo.current_temperature();
+                assert!((temp - 23.0).abs() < 0.1, "Expected ~23.0, got {}", temp);
+            }
+            _ => panic!("Expected ThermometerTypeRemote"),
+        }
+
+        // Test controlling a device
+        {
+            let room = home.get_room("Kitchen").unwrap();
+            let device = room.get_device("Kitchen Fridge").unwrap();
+            match device {
+                Device::OutletTypeRemote(outlet) => {
+                    outlet.turn_on().expect("Failed to turn on fridge");
+                    thread::sleep(Duration::from_millis(50));
+                    assert_eq!(outlet.state().unwrap(), OutletState::On);
+                    assert_eq!(outlet.power_usage().unwrap(), 200);
+                }
+                _ => panic!("Expected OutletTypeRemote"),
+            }
+        }
+
+        // Verify the home has all rooms and devices
+        assert_eq!(home.rooms.len(), 3);
+        assert!(home.access_room("Bedroom").is_ok());
+        assert!(home.access_room("Living Room").is_ok());
+        assert!(home.access_room("Kitchen").is_ok());
     }
 }

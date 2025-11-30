@@ -7,31 +7,40 @@
 - [Step 4: Create Outlet Simulator](step-4-outlet-simulator.md)
 - [Step 5: Create Thermometer Simulator](step-5-thermometer-simulator.md)
 
-**Goal:** Create a complete example that demonstrates the entire system working together
+**Goal:** Create a complete example that demonstrates the entire system working together using the simulator API
 
 ---
 
 ## Overview
 
 The example application will:
+- Spawn device simulators programmatically
 - Create a smart home with multiple rooms
 - Use remote devices (outlets and thermometers)
 - Control devices over the network
 - Display device states and reports
 - Handle errors gracefully
+- Clean up automatically when finished
 
 ---
 
-## 6.1 Create Example File
+## 6.1 Create Complete Integration Example
 
 **File:** `examples/remote_devices.rs`
 
 ```rust
-use smart_home::smart_devices::{Device, OutletDevice, TemperatureSensor};
-use smart_home::smart_room::SmartRoom;
+use smart_home::create_home;
+use smart_home::create_room;
+use smart_home::simulators::{
+    OutletSimulator, OutletSimulatorConfig,
+    ThermometerSimulator, ThermometerSimulatorConfig,
+    TemperaturePattern,
+};
+use smart_home::smart_devices::{Device, OutletDevice, TemperatureSensor, Celsius, Watt, OutletState};
+use smart_home::smart_devices::outlet_remote::OutletRemote;
+use smart_home::smart_devices::thermometr_remote::ThermometerRemote;
 use smart_home::smart_home::SmartHome;
 use smart_home::traits::Information;
-use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
 
@@ -40,26 +49,19 @@ fn main() {
     println!("║    Smart Home Remote Devices Example      ║");
     println!("╚════════════════════════════════════════════╝\n");
 
-    println!("Prerequisites:");
-    println!("  1. Start outlet simulators:");
-    println!("     cargo run --bin outlet_simulator 127.0.0.1:8001 150");
-    println!("     cargo run --bin outlet_simulator 127.0.0.1:8002 300");
-    println!("  2. Start thermometer simulators:");
-    println!("     cargo run --bin thermometer_simulator thermometer_living_room.toml");
-    println!("     cargo run --bin thermometer_simulator thermometer_bedroom.toml");
-    println!("\nPress Enter to continue...");
+    // Step 1: Spawn simulators
+    let simulators = spawn_simulators();
 
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input).unwrap();
+    thread::sleep(Duration::from_millis(200));
 
-    // Create smart home
-    let home = create_smart_home();
+    // Step 2: Create smart home with remote devices
+    let home = create_smart_home(&simulators);
 
     println!("\n--- Initial Home State ---\n");
     print_home_report(&home);
 
-    println!("\n\n--- Waiting for initial thermometer readings ---");
-    thread::sleep(Duration::from_secs(3));
+    println!("\n\n--- Waiting for thermometer readings ---");
+    thread::sleep(Duration::from_secs(2));
 
     println!("\n--- Updated Home State (with temperatures) ---\n");
     print_home_report(&home);
@@ -71,53 +73,126 @@ fn main() {
     print_home_report(&home);
 
     println!("\n✅ Example completed successfully!");
+    println!("\nSimulators will be automatically stopped...");
+
+    // Simulators automatically cleaned up when dropped
 }
 
-fn create_smart_home() -> SmartHome {
+/// Spawn all device simulators and return their addresses
+struct Simulators {
+    living_room_outlet: OutletSimulator,
+    living_room_outlet_addr: String,
+    bedroom_outlet: OutletSimulator,
+    bedroom_outlet_addr: String,
+    living_room_thermo: ThermometerSimulator,
+    bedroom_thermo: ThermometerSimulator,
+}
+
+fn spawn_simulators() -> Simulators {
+    println!("🚀 Spawning device simulators...\n");
+
+    // Spawn outlet simulators
+    let living_room_outlet_config = OutletSimulatorConfig::new("127.0.0.1:0", 150);
+    let living_room_outlet = OutletSimulator::spawn(living_room_outlet_config)
+        .expect("Failed to spawn living room outlet simulator");
+    let living_room_outlet_addr = living_room_outlet.addr().to_string();
+    println!("   ✓ Living Room Outlet simulator: {}", living_room_outlet_addr);
+
+    let bedroom_outlet_config = OutletSimulatorConfig::new("127.0.0.1:0", 300);
+    let bedroom_outlet = OutletSimulator::spawn(bedroom_outlet_config)
+        .expect("Failed to spawn bedroom outlet simulator");
+    let bedroom_outlet_addr = bedroom_outlet.addr().to_string();
+    println!("   ✓ Bedroom Outlet simulator: {}", bedroom_outlet_addr);
+
+    // Spawn thermometer simulators
+    let living_room_thermo_config = ThermometerSimulatorConfig::new(
+        "127.0.0.1:19001",
+        Duration::from_millis(500),
+    )
+    .with_pattern(TemperaturePattern::RandomWalk {
+        min: 20.0,
+        max: 24.0,
+        step: 0.3,
+    })
+    .with_initial_temp(22.0);
+
+    let living_room_thermo = ThermometerSimulator::spawn(living_room_thermo_config)
+        .expect("Failed to spawn living room thermometer simulator");
+    println!("   ✓ Living Room Thermometer simulator: 127.0.0.1:19001");
+
+    let bedroom_thermo_config = ThermometerSimulatorConfig::new(
+        "127.0.0.1:19002",
+        Duration::from_millis(700),
+    )
+    .with_pattern(TemperaturePattern::RandomWalk {
+        min: 18.0,
+        max: 22.0,
+        step: 0.2,
+    })
+    .with_initial_temp(20.0);
+
+    let bedroom_thermo = ThermometerSimulator::spawn(bedroom_thermo_config)
+        .expect("Failed to spawn bedroom thermometer simulator");
+    println!("   ✓ Bedroom Thermometer simulator: 127.0.0.1:19002");
+
+    Simulators {
+        living_room_outlet,
+        living_room_outlet_addr,
+        bedroom_outlet,
+        bedroom_outlet_addr,
+        living_room_thermo,
+        bedroom_thermo,
+    }
+}
+
+fn create_smart_home(simulators: &Simulators) -> SmartHome {
     println!("\n🏠 Creating smart home with remote devices...");
 
-    // Living Room devices
-    let living_room_outlet = Device::new_outlet_remote(
+    // Create remote devices
+    let living_room_outlet = OutletRemote::new(
         "Living Room Outlet".to_string(),
-        "127.0.0.1:8001".to_string()
-    );
+        simulators.living_room_outlet_addr.clone(),
+    ).expect("Failed to connect to living room outlet");
 
-    let living_room_thermometer = Device::new_thermometer_remote(
+    let living_room_thermometer = ThermometerRemote::new(
         "Living Room Thermometer".to_string(),
-        "127.0.0.1:9001".to_string()
+        "127.0.0.1:19001".to_string(),
     ).expect("Failed to create living room thermometer");
 
-    let mut living_room_devices = HashMap::new();
-    living_room_devices.insert("outlet".to_string(), living_room_outlet);
-    living_room_devices.insert("thermometer".to_string(), living_room_thermometer);
-
-    let living_room = SmartRoom::new("Living Room".to_string(), living_room_devices);
-
-    // Bedroom devices
-    let bedroom_outlet = Device::new_outlet_remote(
+    let bedroom_outlet = OutletRemote::new(
         "Bedroom Outlet".to_string(),
-        "127.0.0.1:8002".to_string()
-    );
+        simulators.bedroom_outlet_addr.clone(),
+    ).expect("Failed to connect to bedroom outlet");
 
-    let bedroom_thermometer = Device::new_thermometer_remote(
+    let bedroom_thermometer = ThermometerRemote::new(
         "Bedroom Thermometer".to_string(),
-        "127.0.0.1:9002".to_string()
+        "127.0.0.1:19002".to_string(),
     ).expect("Failed to create bedroom thermometer");
 
-    let mut bedroom_devices = HashMap::new();
-    bedroom_devices.insert("outlet".to_string(), bedroom_outlet);
-    bedroom_devices.insert("thermometer".to_string(), bedroom_thermometer);
-
-    let bedroom = SmartRoom::new("Bedroom".to_string(), bedroom_devices);
-
-    // Create home
-    let mut rooms = HashMap::new();
-    rooms.insert("Living Room".to_string(), living_room);
-    rooms.insert("Bedroom".to_string(), bedroom);
+    // Create home using macros
+    let home = create_home!(
+        "My Smart Home",
+        {
+            "Living Room",
+            create_room!(
+                "Living Room",
+                "outlet" => Device::OutletTypeRemote(living_room_outlet),
+                "thermometer" => Device::ThermometerTypeRemote(living_room_thermometer)
+            )
+        },
+        {
+            "Bedroom",
+            create_room!(
+                "Bedroom",
+                "outlet" => Device::OutletTypeRemote(bedroom_outlet),
+                "thermometer" => Device::ThermometerTypeRemote(bedroom_thermometer)
+            )
+        }
+    );
 
     println!("   ✓ Created 2 rooms with 4 remote devices");
 
-    SmartHome::new("My Smart Home".to_string(), rooms)
+    home
 }
 
 fn print_home_report(home: &SmartHome) {
@@ -125,78 +200,64 @@ fn print_home_report(home: &SmartHome) {
 }
 
 fn control_devices(home: &SmartHome) {
-    // Get access to devices
-    // Note: This requires adding a method to access rooms and devices
-    // For now, we'll demonstrate with direct access if possible
-
     println!("1. Turning on Living Room outlet...");
     if let Some(room) = home.get_room("Living Room") {
-        if let Some(device) = room.view_device("outlet") {
-            if let Device::OutletType(outlet) = device {
-                match outlet.turn_on() {
-                    Ok(_) => println!("   ✓ Living Room outlet turned ON"),
-                    Err(e) => println!("   ✗ Error: {}", e),
-                }
+        if let Some(Device::OutletTypeRemote(outlet)) = room.get_device("outlet") {
+            match outlet.turn_on() {
+                Ok(_) => println!("   ✓ Living Room outlet turned ON"),
+                Err(e) => println!("   ✗ Error: {}", e),
             }
         }
     }
 
-    thread::sleep(Duration::from_secs(1));
+    thread::sleep(Duration::from_millis(500));
 
-    println!("\n2. Getting Living Room outlet state...");
+    println!("\n2. Getting Living Room outlet state and power...");
     if let Some(room) = home.get_room("Living Room") {
-        if let Some(device) = room.view_device("outlet") {
-            if let Device::OutletType(outlet) = device {
-                match outlet.state() {
-                    Ok(state) => println!("   State: {:?}", state),
-                    Err(e) => println!("   ✗ Error: {}", e),
-                }
-                match outlet.power_usage() {
-                    Ok(power) => println!("   Power: {} watts", power),
-                    Err(e) => println!("   ✗ Error: {}", e),
-                }
+        if let Some(Device::OutletTypeRemote(outlet)) = room.get_device("outlet") {
+            match outlet.state() {
+                Ok(state) => println!("   State: {:?}", state),
+                Err(e) => println!("   ✗ Error: {}", e),
+            }
+            match outlet.power_usage() {
+                Ok(power) => println!("   Power: {} watts", power),
+                Err(e) => println!("   ✗ Error: {}", e),
             }
         }
     }
 
-    thread::sleep(Duration::from_secs(1));
+    thread::sleep(Duration::from_millis(500));
 
     println!("\n3. Turning on Bedroom outlet...");
     if let Some(room) = home.get_room("Bedroom") {
-        if let Some(device) = room.view_device("outlet") {
-            if let Device::OutletType(outlet) = device {
-                match outlet.turn_on() {
-                    Ok(_) => println!("   ✓ Bedroom outlet turned ON"),
-                    Err(e) => println!("   ✗ Error: {}", e),
-                }
+        if let Some(Device::OutletTypeRemote(outlet)) = room.get_device("outlet") {
+            match outlet.turn_on() {
+                Ok(_) => println!("   ✓ Bedroom outlet turned ON"),
+                Err(e) => println!("   ✗ Error: {}", e),
             }
         }
     }
 
-    thread::sleep(Duration::from_secs(1));
+    thread::sleep(Duration::from_millis(500));
 
     println!("\n4. Reading all thermometers...");
     for room_name in &["Living Room", "Bedroom"] {
         if let Some(room) = home.get_room(room_name) {
-            if let Some(device) = room.view_device("thermometer") {
-                if let Device::ThermometerType(thermometer) = device {
-                    let temp = thermometer.current_temperature();
-                    println!("   {}: {:.2}°C", room_name, temp);
-                }
+            if let Some(Device::ThermometerTypeRemote(thermometer)) = room.view_device("thermometer") {
+                let temp = thermometer.current_temperature();
+                println!("   {}: {:.2}°C", room_name, temp);
             }
         }
     }
 
-    thread::sleep(Duration::from_secs(1));
+    thread::sleep(Duration::from_millis(500));
 
     println!("\n5. Switching Living Room outlet...");
     if let Some(room) = home.get_room("Living Room") {
-        if let Some(device) = room.view_device("outlet") {
-            if let Device::OutletType(outlet) = device {
-                match outlet.switch() {
-                    Ok(_) => println!("   ✓ Living Room outlet switched"),
-                    Err(e) => println!("   ✗ Error: {}", e),
-                }
+        if let Some(Device::OutletTypeRemote(outlet)) = room.get_device("outlet") {
+            match outlet.switch() {
+                Ok(_) => println!("   ✓ Living Room outlet switched"),
+                Err(e) => println!("   ✗ Error: {}", e),
             }
         }
     }
@@ -205,189 +266,275 @@ fn control_devices(home: &SmartHome) {
 
 ---
 
-## 6.2 Add Helper Methods to SmartHome
+## 6.2 Create Simpler Example with Mixed Devices
 
-You may need to add these methods to `SmartHome`:
-
-**File:** `src/smart_home.rs`
+**File:** `examples/mixed_devices.rs`
 
 ```rust
-impl SmartHome {
-    // If not already present, add:
-    pub fn get_room(&self, room_name: &str) -> Option<&SmartRoom> {
-        self.rooms.get(room_name)
+use smart_home::create_home;
+use smart_home::create_room;
+use smart_home::simulators::{OutletSimulator, OutletSimulatorConfig};
+use smart_home::smart_devices::{Device, OutletDevice, OutletState, Watt, Celsius};
+use smart_home::smart_devices::outlet_remote::OutletRemote;
+use smart_home::traits::Information;
+use std::thread;
+use std::time::Duration;
+
+fn main() {
+    println!("╔════════════════════════════════════════════╗");
+    println!("║      Mixed Local & Remote Devices         ║");
+    println!("╚════════════════════════════════════════════╝\n");
+
+    // Spawn one remote outlet simulator
+    let config = OutletSimulatorConfig::new("127.0.0.1:0", 200);
+    let simulator = OutletSimulator::spawn(config)
+        .expect("Failed to spawn simulator");
+
+    println!("✓ Remote outlet simulator: {}\n", simulator.addr());
+
+    thread::sleep(Duration::from_millis(100));
+
+    // Connect to remote outlet
+    let remote_outlet = OutletRemote::new(
+        "Remote Outlet".to_string(),
+        simulator.addr().to_string(),
+    ).expect("Failed to connect");
+
+    // Create home with both local and remote devices
+    let mut home = create_home!(
+        "My Home",
+        {
+            "Living Room",
+            create_room!(
+                "Living Room",
+                "local_outlet" => Device::new_outlet(
+                    "Local Outlet".to_string(),
+                    OutletState::On,
+                    150 as Watt
+                ),
+                "remote_outlet" => Device::OutletTypeRemote(remote_outlet),
+                "thermometer" => Device::new_thermometer(
+                    "Local Thermometer".to_string(),
+                    22.5 as Celsius
+                )
+            )
+        }
+    );
+
+    println!("📊 Home Report:\n{}\n", home.info());
+
+    // Control remote outlet
+    if let Some(room) = home.get_room("Living Room") {
+        if let Some(Device::OutletTypeRemote(outlet)) = room.get_device("remote_outlet") {
+            println!("Turning on remote outlet...");
+            outlet.turn_on().expect("Failed to turn on");
+
+            thread::sleep(Duration::from_millis(100));
+
+            let state = outlet.state().expect("Failed to get state");
+            let power = outlet.power_usage().expect("Failed to get power");
+
+            println!("✓ Remote outlet: {:?}, {} watts\n", state, power);
+        }
     }
 
-    pub fn get_room_mut(&mut self, room_name: &str) -> Option<&mut SmartRoom> {
-        self.rooms.get_mut(room_name)
-    }
+    println!("📊 Updated Report:\n{}\n", home.info());
+
+    println!("✅ Example completed!");
 }
 ```
 
-**File:** `src/smart_room.rs`
+---
+
+## 6.3 Create Error Handling Example
+
+**File:** `examples/error_handling.rs`
 
 ```rust
-impl SmartRoom {
-    // Ensure these methods exist:
-    pub fn view_device(&self, key: &str) -> Option<&Device> {
-        self.devices.get(key)
+use smart_home::smart_devices::outlet_remote::OutletRemote;
+use smart_home::smart_devices::OutletDevice;
+use std::thread;
+use std::time::Duration;
+
+fn main() {
+    println!("╔════════════════════════════════════════════╗");
+    println!("║        Error Handling Examples             ║");
+    println!("╚════════════════════════════════════════════╝\n");
+
+    // Test 1: Connection refused
+    println!("1. Attempting to connect to non-existent outlet...");
+    let result = OutletRemote::new(
+        "Broken Outlet".to_string(),
+        "127.0.0.1:9999".to_string(),
+    );
+
+    match result {
+        Ok(_) => println!("   ✗ Unexpected success!"),
+        Err(e) => println!("   ✓ Expected error: {}\n", e),
     }
 
-    pub fn get_device(&mut self, key: &str) -> Option<&mut Device> {
-        self.devices.get_mut(key)
-    }
+    // Test 2: Timeout handling
+    // Note: Would need a simulator that doesn't respond to test this
+
+    println!("✅ Error handling tests completed!");
 }
 ```
 
 ---
 
-## 6.3 Create Startup Script
+## 6.4 Create Stress Test Example
 
-Create a helper script to start all simulators:
+**File:** `examples/stress_test.rs`
 
-**File:** `start_simulators.sh`
+```rust
+use smart_home::simulators::{
+    OutletSimulator, OutletSimulatorConfig,
+    ThermometerSimulator, ThermometerSimulatorConfig,
+    TemperaturePattern,
+};
+use smart_home::smart_devices::outlet_remote::OutletRemote;
+use smart_home::smart_devices::thermometr_remote::ThermometerRemote;
+use smart_home::smart_devices::{OutletDevice, TemperatureSensor};
+use std::thread;
+use std::time::Duration;
 
-```bash
-#!/bin/bash
+fn main() {
+    println!("╔════════════════════════════════════════════╗");
+    println!("║           Stress Test Example              ║");
+    println!("╚════════════════════════════════════════════╝\n");
 
-# Start Smart Home Simulators
+    // Spawn multiple simulators
+    println!("Spawning 5 outlet simulators and 3 thermometer simulators...\n");
 
-echo "Starting Smart Home simulators..."
-echo ""
+    let mut outlet_sims = vec![];
+    let mut thermo_sims = vec![];
 
-# Start outlet simulators
-echo "Starting outlet simulators..."
-cargo run --bin outlet_simulator 127.0.0.1:8001 150 &
-PID_OUTLET1=$!
-echo "  Living Room Outlet (PID: $PID_OUTLET1)"
+    for i in 0..5 {
+        let config = OutletSimulatorConfig::new("127.0.0.1:0", 100 + i * 50);
+        let sim = OutletSimulator::spawn(config)
+            .expect("Failed to spawn outlet");
+        println!("   Outlet {}: {}", i + 1, sim.addr());
+        outlet_sims.push(sim);
+    }
 
-cargo run --bin outlet_simulator 127.0.0.1:8002 300 &
-PID_OUTLET2=$!
-echo "  Bedroom Outlet (PID: $PID_OUTLET2)"
+    for i in 0..3 {
+        let config = ThermometerSimulatorConfig::new(
+            format!("127.0.0.1:{}", 19100 + i),
+            Duration::from_millis(500),
+        ).with_pattern(TemperaturePattern::RandomWalk {
+            min: 18.0 + i as f32,
+            max: 24.0 + i as f32,
+            step: 0.3,
+        });
 
-# Start thermometer simulators
-echo ""
-echo "Starting thermometer simulators..."
-cargo run --bin thermometer_simulator thermometer_living_room.toml &
-PID_THERMO1=$!
-echo "  Living Room Thermometer (PID: $PID_THERMO1)"
+        let sim = ThermometerSimulator::spawn(config)
+            .expect("Failed to spawn thermometer");
+        println!("   Thermometer {}: 127.0.0.1:{}", i + 1, 19100 + i);
+        thermo_sims.push(sim);
+    }
 
-cargo run --bin thermometer_simulator thermometer_bedroom.toml &
-PID_THERMO2=$!
-echo "  Bedroom Thermometer (PID: $PID_THERMO2)"
+    println!("\n✓ All simulators spawned!\n");
 
-echo ""
-echo "All simulators started!"
-echo ""
-echo "To stop all simulators, run:"
-echo "  kill $PID_OUTLET1 $PID_OUTLET2 $PID_THERMO1 $PID_THERMO2"
-echo ""
-echo "Or save this to a file:"
-echo "$PID_OUTLET1 $PID_OUTLET2 $PID_THERMO1 $PID_THERMO2" > .simulator_pids
-echo "  Saved PIDs to .simulator_pids"
-echo ""
-echo "Now run:"
-echo "  cargo run --example remote_devices"
-```
+    thread::sleep(Duration::from_millis(200));
 
-Make it executable:
-```bash
-chmod +x start_simulators.sh
+    // Connect clients
+    println!("Connecting clients...\n");
+    let mut outlets = vec![];
+
+    for (i, sim) in outlet_sims.iter().enumerate() {
+        let outlet = OutletRemote::new(
+            format!("Outlet {}", i + 1),
+            sim.addr().to_string(),
+        ).expect("Failed to connect");
+        outlets.push(outlet);
+    }
+
+    let mut thermos = vec![];
+    for i in 0..3 {
+        let thermo = ThermometerRemote::new(
+            format!("Thermo {}", i + 1),
+            format!("127.0.0.1:{}", 19100 + i),
+        ).expect("Failed to create thermometer");
+        thermos.push(thermo);
+    }
+
+    // Perform operations
+    println!("Performing rapid operations...\n");
+
+    for _ in 0..10 {
+        // Toggle all outlets
+        for outlet in &mut outlets {
+            let _ = outlet.switch();
+        }
+
+        // Read all thermometers
+        for thermo in &thermos {
+            let _ = thermo.current_temperature();
+        }
+
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    println!("✓ Completed 10 rapid operation cycles\n");
+
+    // Final status
+    println!("Final status:");
+    for (i, outlet) in outlets.iter().enumerate() {
+        let state = outlet.state().unwrap_or_else(|_| OutletState::Off);
+        let power = outlet.power_usage().unwrap_or(0);
+        println!("   Outlet {}: {:?}, {} watts", i + 1, state, power);
+    }
+
+    for (i, thermo) in thermos.iter().enumerate() {
+        let temp = thermo.current_temperature();
+        println!("   Thermo {}: {:.2}°C", i + 1, temp);
+    }
+
+    println!("\n✅ Stress test completed!");
+}
 ```
 
 ---
 
-## 6.4 Create Stop Script
+## 6.5 Run Examples
 
-**File:** `stop_simulators.sh`
-
-```bash
-#!/bin/bash
-
-if [ -f .simulator_pids ]; then
-    echo "Stopping simulators..."
-    PIDS=$(cat .simulator_pids)
-    kill $PIDS 2>/dev/null
-    rm .simulator_pids
-    echo "Simulators stopped"
-else
-    echo "No .simulator_pids file found"
-    echo "Kill manually or use: pkill -f outlet_simulator && pkill -f thermometer_simulator"
-fi
-```
-
-Make it executable:
-```bash
-chmod +x stop_simulators.sh
-```
-
----
-
-## 6.5 Run the Complete System
-
-### Step-by-step:
-
-1. **Start all simulators:**
-   ```bash
-   ./start_simulators.sh
-   ```
-
-2. **Run the example:**
+1. **Run the main integration example:**
    ```bash
    cargo run --example remote_devices
    ```
 
-3. **Stop all simulators:**
+2. **Run the mixed devices example:**
    ```bash
-   ./stop_simulators.sh
+   cargo run --example mixed_devices
    ```
 
-### Or manually:
+3. **Run the error handling example:**
+   ```bash
+   cargo run --example error_handling
+   ```
 
-**Terminal 1:**
-```bash
-cargo run --bin outlet_simulator 127.0.0.1:8001 150
-```
-
-**Terminal 2:**
-```bash
-cargo run --bin outlet_simulator 127.0.0.1:8002 300
-```
-
-**Terminal 3:**
-```bash
-cargo run --bin thermometer_simulator thermometer_living_room.toml
-```
-
-**Terminal 4:**
-```bash
-cargo run --bin thermometer_simulator thermometer_bedroom.toml
-```
-
-**Terminal 5:**
-```bash
-cargo run --example remote_devices
-```
+4. **Run the stress test:**
+   ```bash
+   cargo run --example stress_test
+   ```
 
 ---
 
 ## 6.6 Expected Output
 
-**Example Application:**
+**remote_devices example:**
+
 ```
 ╔════════════════════════════════════════════╗
 ║    Smart Home Remote Devices Example      ║
 ╚════════════════════════════════════════════╝
 
-Prerequisites:
-  1. Start outlet simulators:
-     cargo run --bin outlet_simulator 127.0.0.1:8001 150
-     cargo run --bin outlet_simulator 127.0.0.1:8002 300
-  2. Start thermometer simulators:
-     cargo run --bin thermometer_simulator thermometer_living_room.toml
-     cargo run --bin thermometer_simulator thermometer_bedroom.toml
+🚀 Spawning device simulators...
 
-Press Enter to continue...
+   ✓ Living Room Outlet simulator: 127.0.0.1:51234
+   ✓ Bedroom Outlet simulator: 127.0.0.1:51235
+   ✓ Living Room Thermometer simulator: 127.0.0.1:19001
+   ✓ Bedroom Thermometer simulator: 127.0.0.1:19002
 
 🏠 Creating smart home with remote devices...
    ✓ Created 2 rooms with 4 remote devices
@@ -396,24 +543,24 @@ Press Enter to continue...
 
 Smart Home: My Smart Home
   Room: Living Room
-    - Living Room Outlet: Off, 0 watts
-    - Living Room Thermometer: 20.00°C
+    - Remote Smart Outlet: Living Room Outlet - Current State: Off, Power Usage: 0 Watt
+    - Thermometer: Living Room Thermometer - Current Temperature: 0.00°C
   Room: Bedroom
-    - Bedroom Outlet: Off, 0 watts
-    - Bedroom Thermometer: 20.00°C
+    - Remote Smart Outlet: Bedroom Outlet - Current State: Off, Power Usage: 0 Watt
+    - Thermometer: Bedroom Thermometer - Current Temperature: 0.00°C
 
 
---- Waiting for initial thermometer readings ---
+--- Waiting for thermometer readings ---
 
 --- Updated Home State (with temperatures) ---
 
 Smart Home: My Smart Home
   Room: Living Room
-    - Living Room Outlet: Off, 0 watts
-    - Living Room Thermometer: 22.34°C
+    - Remote Smart Outlet: Living Room Outlet - Current State: Off, Power Usage: 0 Watt
+    - Thermometer: Living Room Thermometer - Current Temperature: 22.15°C
   Room: Bedroom
-    - Bedroom Outlet: Off, 0 watts
-    - Bedroom Thermometer: 19.87°C
+    - Remote Smart Outlet: Bedroom Outlet - Current State: Off, Power Usage: 0 Watt
+    - Thermometer: Bedroom Thermometer - Current Temperature: 20.08°C
 
 
 --- Controlling Devices ---
@@ -421,7 +568,7 @@ Smart Home: My Smart Home
 1. Turning on Living Room outlet...
    ✓ Living Room outlet turned ON
 
-2. Getting Living Room outlet state...
+2. Getting Living Room outlet state and power...
    State: On
    Power: 150 watts
 
@@ -429,8 +576,8 @@ Smart Home: My Smart Home
    ✓ Bedroom outlet turned ON
 
 4. Reading all thermometers...
-   Living Room: 22.56°C
-   Bedroom: 19.92°C
+   Living Room: 22.23°C
+   Bedroom: 20.12°C
 
 5. Switching Living Room outlet...
    ✓ Living Room outlet switched
@@ -440,66 +587,35 @@ Smart Home: My Smart Home
 
 Smart Home: My Smart Home
   Room: Living Room
-    - Living Room Outlet: Off, 0 watts
-    - Living Room Thermometer: 22.78°C
+    - Remote Smart Outlet: Living Room Outlet - Current State: Off, Power Usage: 0 Watt
+    - Thermometer: Living Room Thermometer - Current Temperature: 22.31°C
   Room: Bedroom
-    - Bedroom Outlet: On, 300 watts
-    - Bedroom Thermometer: 20.01°C
+    - Remote Smart Outlet: Bedroom Outlet - Current State: On, Power Usage: 300 Watt
+    - Thermometer: Bedroom Thermometer - Current Temperature: 20.15°C
 
 ✅ Example completed successfully!
-```
 
----
-
-## 6.7 Add Error Handling Example
-
-Create an example that demonstrates error handling:
-
-**File:** `examples/error_handling.rs`
-
-```rust
-use smart_home::smart_devices::Device;
-use std::thread;
-use std::time::Duration;
-
-fn main() {
-    println!("Testing error handling...\n");
-
-    // Try to connect to non-existent simulator
-    println!("1. Attempting to connect to non-existent outlet...");
-    let mut outlet = Device::new_outlet_remote(
-        "Broken Outlet".to_string(),
-        "127.0.0.1:9999".to_string()
-    );
-
-    if let Device::OutletType(ref mut o) = outlet {
-        match o.turn_on() {
-            Ok(_) => println!("   ✓ Success (unexpected!)"),
-            Err(e) => println!("   ✗ Error (expected): {}", e),
-        }
-    }
-
-    println!("\n2. Attempting to read from outlet with timeout...");
-    if let Device::OutletType(ref o) = outlet {
-        match o.state() {
-            Ok(state) => println!("   State: {:?}", state),
-            Err(e) => println!("   ✗ Error: {}", e),
-        }
-    }
-
-    println!("\n✅ Error handling test completed");
-}
+Simulators will be automatically stopped...
 ```
 
 ---
 
 ## Summary
 
-✅ Created comprehensive example application
-✅ Demonstrated full system integration
-✅ Created helper scripts for managing simulators
-✅ Showed device control over network
+✅ Created comprehensive integration examples
+✅ Demonstrated programmatic simulator spawning
+✅ Showed mixed local and remote device usage
 ✅ Added error handling examples
-✅ Documented expected output
+✅ Created stress test for multiple devices
+✅ All cleanup happens automatically
+✅ No need for separate terminal windows or scripts
+
+**Advantages of this approach:**
+- Everything in one process
+- Automatic resource cleanup
+- Easy to run and test
+- No manual setup required
+- Perfect for CI/CD
+- Great developer experience
 
 **Next Step:** [Step 7: Testing Strategy](step-7-testing.md)

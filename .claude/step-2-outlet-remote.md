@@ -172,7 +172,7 @@ Modify the `OutletDevice` trait methods to support both modes:
 Here's Option B (recommended):
 
 ```rust
-// Update trait definition in src/smart_devices/outlet.rs
+// Update trait definition in src/smart_devices/outlet_mock
 pub trait OutletDevice: Information {
     fn turn_on(&mut self) -> Result<(), OutletError>;
     fn turn_off(&mut self) -> Result<(), OutletError>;
