@@ -1,14 +1,14 @@
 use crate::smart_devices::Device;
-use crate::traits::{Information, Subscriber};
+use crate::traits::Information;
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::string::String;
 
+#[derive(Clone)]
 pub struct SmartRoom {
     name: String,
     devices: HashMap<String, Device>,
-    subs: Vec<Box<dyn Subscriber>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -65,12 +65,16 @@ impl SmartRoom {
     /// # Returns
     ///
     /// A new SmartRoom instance.
-    pub fn new(name: String, devices: HashMap<String, Device>) -> Self {
+    pub fn new(name: String) -> Self {
         SmartRoom {
             name,
-            devices,
-            subs: Vec::new(),
+            devices: HashMap::new(),
         }
+    }
+
+    pub fn with_devices(mut self, devices: HashMap<String, Device>) -> Self {
+        self.devices = devices;
+        self
     }
 
     /// Returns an immutable reference to the device with the given key.
@@ -109,7 +113,6 @@ impl SmartRoom {
     /// * `device` - The device to be added to the room.
     pub fn add_device(&mut self, key: String, device: Device) {
         self.devices.insert(key, device.clone());
-        self.notify_device_added(&device);
     }
 
     /// Removes a device from the room by its key.
@@ -122,11 +125,7 @@ impl SmartRoom {
     ///
     /// An `Option` containing the removed device if it was found, or `None` if not found.
     pub fn remove_device(&mut self, key: &str) -> Option<Device> {
-        let removed_device = self.devices.remove(key);
-        if let Some(ref device) = removed_device {
-            self.notify_device_removed(device);
-        }
-        removed_device
+        self.devices.remove(key)
     }
 
     /// Returns the number of devices in the room.
@@ -134,23 +133,9 @@ impl SmartRoom {
         self.devices.len()
     }
 
-    pub fn subscribe<S>(&mut self, subscriber: S)
-    where
-        S: Subscriber + 'static,
-    {
-        self.subs.push(Box::new(subscriber));
-    }
-
-    fn notify_device_added(&mut self, device: &Device) {
-        for sub in &mut self.subs {
-            sub.on_device_added(device);
-        }
-    }
-
-    fn notify_device_removed(&mut self, device: &Device) {
-        for sub in &mut self.subs {
-            sub.on_device_removed(device);
-        }
+    /// Return a list of devices in the room.
+    pub fn devices(&self) -> Vec<&Device> {
+        self.devices.values().collect()
     }
 }
 
@@ -207,7 +192,6 @@ impl SmartRoomHelpBuilder {
             room: SmartRoom {
                 name: name.to_string(),
                 devices: HashMap::new(),
-                subs: Vec::new(),
             },
         }
     }
@@ -229,7 +213,7 @@ macro_rules! create_room {
             $( ($key.to_string(), $value) ),*
           ]
         );
-        SmartRoom::new($name.to_string(), devices)
+        SmartRoom::new($name.to_string()).with_devices(devices)
     }};
 }
 
@@ -242,14 +226,14 @@ mod tests {
 
     #[test]
     fn smart_room_create_empty_test() {
-        let room = SmartRoom::new("Living Room".to_string(), HashMap::new());
+        let room = SmartRoom::new("Living Room".to_string());
         assert_eq!(room.name(), "Living Room");
         assert_eq!(room.size(), 0);
     }
 
     #[test]
     fn smart_room_view_index_out_of_bounds_test() {
-        let room = SmartRoom::new("Living Room".to_string(), HashMap::new());
+        let room = SmartRoom::new("Living Room".to_string());
         assert_eq!(room.name(), "Living Room");
         assert_eq!(room.size(), 0);
         assert_eq!(room.view_device("Some device"), None);
@@ -257,7 +241,7 @@ mod tests {
 
     #[test]
     fn smart_room_get_index_out_of_bounds_test() {
-        let mut room = SmartRoom::new("Living Room".to_string(), HashMap::new());
+        let mut room = SmartRoom::new("Living Room".to_string());
         assert_eq!(room.name(), "Living Room");
         assert_eq!(room.size(), 0);
         assert_eq!(room.get_device("Some device"), None);
@@ -383,7 +367,7 @@ mod tests {
 
     #[test]
     fn smart_room_add_one_device_test() {
-        let mut room = SmartRoom::new("Living Room".to_string(), HashMap::new());
+        let mut room = SmartRoom::new("Living Room".to_string());
         let outlet = Device::new_outlet("Smart Outlet".to_string(), OutletState::On, 150 as Watt);
         room.add_device("Smart Outlet".to_string(), outlet);
         assert_eq!(room.size(), 1);
@@ -397,7 +381,7 @@ mod tests {
 
     #[test]
     fn smart_room_add_many_devices_test() {
-        let mut room = SmartRoom::new("Living Room".to_string(), HashMap::new());
+        let mut room = SmartRoom::new("Living Room".to_string());
         room.add_device(
             "Smart Outlet lighter".to_string(),
             Device::new_outlet(
@@ -441,7 +425,7 @@ Smart Room: Living Room:
 
     #[test]
     fn smart_room_remove_one_device_test() {
-        let mut room = SmartRoom::new("Living Room".to_string(), HashMap::new());
+        let mut room = SmartRoom::new("Living Room".to_string());
         let outlet = Device::new_outlet("Smart Outlet".to_string(), OutletState::On, 150 as Watt);
         room.add_device("Smart Outlet".to_string(), outlet);
 
@@ -459,7 +443,7 @@ Smart Room: Living Room:
 
     #[test]
     fn smart_room_remove_many_devices_test() {
-        let mut room = SmartRoom::new("Living Room".to_string(), HashMap::new());
+        let mut room = SmartRoom::new("Living Room".to_string());
         room.add_device(
             "Smart Outlet lighter".to_string(),
             Device::new_outlet(

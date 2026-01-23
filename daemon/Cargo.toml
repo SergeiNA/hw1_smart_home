@@ -1,0 +1,9 @@
+[package]
+name = "deamon"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+server = {path = "../server"}
+tokio = { version = "1.49.0", features = ["full"] }
+tracing-subscriber = "0.3.22"

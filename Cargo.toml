@@ -1,6 +1,3 @@
-[package]
-name = "smart_home"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
+[workspace]
+members = ["smart_home", "server", "daemon"]
+resolver = "2"

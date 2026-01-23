@@ -64,7 +64,7 @@ mod tests {
         );
         let room_thermometer =
             Device::new_thermometer("Room Thermometer".to_string(), 21.0 as Celsius);
-        let mut room = SmartRoom::new("Living Room".to_string(), HashMap::new());
+        let mut room = SmartRoom::new("Living Room".to_string());
         room.add_device("Thermometer".to_string(), room_thermometer);
         let reporter = Reporter::default()
             .append(&thermometer)

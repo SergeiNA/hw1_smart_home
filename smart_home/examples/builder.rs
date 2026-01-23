@@ -14,7 +14,7 @@ fn log_error(message: &dyn Error) {
 
 fn main() {
     let mut home = SmartHomeBuilder::new("My Smart Home")
-        .add_room(SmartRoom::new("Bedroom".to_string(), HashMap::new()))
+        .add_room(SmartRoom::new("Bedroom".to_string()))
         .add_device(
             "Attached Outlet",
             Device::new_outlet("Attached Outlet".to_string(), OutletState::On, 250 as Watt),
@@ -27,7 +27,7 @@ fn main() {
             "Electron thermometer",
             Device::new_thermometer("Electron thermometer".to_string(), 22.5 as Celsius),
         )
-        .add_room(SmartRoom::new("Living Room".to_string(), HashMap::new()))
+        .add_room(SmartRoom::new("Living Room".to_string()))
         .add_device(
             "Lighter",
             Device::new_outlet("Lighter".to_string(), OutletState::On, 100 as Watt),
@@ -40,7 +40,7 @@ fn main() {
             "Electronic thermometer",
             Device::new_thermometer("Electronic thermometer".to_string(), 22.5 as Celsius),
         )
-        .add_room(SmartRoom::new("Kitchen Room".to_string(), HashMap::new()))
+        .add_room(SmartRoom::new("Kitchen Room".to_string()))
         .add_device(
             "Refrigerator Outlet",
             Device::new_outlet(

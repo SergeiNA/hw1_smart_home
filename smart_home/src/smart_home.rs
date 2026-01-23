@@ -74,6 +74,12 @@ impl Information for SmartHome {
     }
 }
 
+impl Default for SmartHome {
+    fn default() -> Self {
+        SmartHome::new("My Home".to_string(), HashMap::new())
+    }
+}
+
 impl SmartHome {
     /// Creates a new SmartHome with the given name and rooms
     ///
@@ -151,6 +157,11 @@ impl SmartHome {
     /// Returns the number of rooms in the smart home
     pub fn size(&self) -> usize {
         self.rooms.len()
+    }
+
+    /// Get list of rooms in the smart home
+    pub fn rooms(&self) -> Vec<&SmartRoom> {
+        self.rooms.values().collect()
     }
 }
 
@@ -260,8 +271,8 @@ mod tests {
 
     #[test]
     fn view_home_rooms() {
-        let room1 = SmartRoom::new("Living Room".to_string(), HashMap::new());
-        let room2 = SmartRoom::new("Bedroom".to_string(), HashMap::new());
+        let room1 = SmartRoom::new("Living Room".to_string());
+        let room2 = SmartRoom::new("Bedroom".to_string());
         let home = SmartHome::new(
             "My Home".to_string(),
             HashMap::from([
@@ -280,9 +291,9 @@ mod tests {
             let home = create_home!(
                 "My Smart Home",
                 {"Living Room",
-                SmartRoom::new("Living Room".to_string(), HashMap::new())},
+                SmartRoom::new("Living Room".to_string())},
                 {"Bedroom",
-                SmartRoom::new("Bedroom".to_string(), HashMap::new())},
+                SmartRoom::new("Bedroom".to_string())},
 
             );
 
@@ -566,7 +577,7 @@ Smart Room: Living Room:
     #[test]
     fn smart_home_builder_test() {
         let home = SmartHomeBuilder::new("My Smart Home")
-            .add_room(SmartRoom::new("Bedroom".to_string(), HashMap::new()))
+            .add_room(SmartRoom::new("Bedroom".to_string()))
             .add_device(
                 "Attached Outlet",
                 Device::new_outlet("Attached Outlet".to_string(), OutletState::On, 250 as Watt),
@@ -579,7 +590,7 @@ Smart Room: Living Room:
                 "Electron thermometer",
                 Device::new_thermometer("Electron thermometer".to_string(), 22.5 as Celsius),
             )
-            .add_room(SmartRoom::new("Living Room".to_string(), HashMap::new()))
+            .add_room(SmartRoom::new("Living Room".to_string()))
             .add_device(
                 "PC",
                 Device::new_outlet("PC".to_string(), OutletState::On, 250 as Watt),
@@ -617,11 +628,11 @@ Smart Room: Living Room:
     #[test]
     fn smart_home_add_rooms_test() {
         let mut home = SmartHome::new("My Home".to_string(), HashMap::new());
-        let bedroom = SmartRoom::new("Bedroom".to_string(), HashMap::new());
+        let bedroom = SmartRoom::new("Bedroom".to_string());
         home.add_room(bedroom);
         assert_eq!(home.view_room("Bedroom").unwrap().name(), "Bedroom");
 
-        let living_room = SmartRoom::new("Living Room".to_string(), HashMap::new());
+        let living_room = SmartRoom::new("Living Room".to_string());
         home.add_room(living_room);
         assert_eq!(home.view_room("Living Room").unwrap().name(), "Living Room");
 
@@ -631,7 +642,7 @@ Smart Room: Living Room:
     #[test]
     fn smart_home_remove_rooms_test() {
         let mut home = SmartHome::new("My Home".to_string(), HashMap::new());
-        let bedroom = SmartRoom::new("Bedroom".to_string(), HashMap::new());
+        let bedroom = SmartRoom::new("Bedroom".to_string());
         home.add_room(bedroom);
         assert_eq!(home.view_room("Bedroom").unwrap().name(), "Bedroom");
 
@@ -643,8 +654,8 @@ Smart Room: Living Room:
 
     #[test]
     fn smart_home_access_room_test() {
-        let bedroom = SmartRoom::new("Bedroom".to_string(), HashMap::new());
-        let living_room = SmartRoom::new("Living Room".to_string(), HashMap::new());
+        let bedroom = SmartRoom::new("Bedroom".to_string());
+        let living_room = SmartRoom::new("Living Room".to_string());
         let home = SmartHome::new(
             "My Home".to_string(),
             HashMap::from([
@@ -668,13 +679,10 @@ Smart Room: Living Room:
 
     #[test]
     fn smart_home_access_device_test() {
-        let bedroom = SmartRoom::new(
-            "Bedroom".to_string(),
-            HashMap::from([(
-                "Attached Outlet".to_string(),
-                Device::new_outlet("Attached Outlet".to_string(), OutletState::On, 250 as Watt),
-            )]),
-        );
+        let bedroom = SmartRoom::new("Bedroom".to_string()).with_devices(HashMap::from([(
+            "Attached Outlet".to_string(),
+            Device::new_outlet("Attached Outlet".to_string(), OutletState::On, 250 as Watt),
+        )]));
         let home = SmartHome::new(
             "My Home".to_string(),
             HashMap::from([("Bedroom".to_string(), bedroom)]),
